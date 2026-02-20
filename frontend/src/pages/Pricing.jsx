@@ -33,12 +33,50 @@ export default function Pricing() {
     }
 
     setLoading(true);
+
     try {
       const response = await subscriptionApi.createCheckout();
-      window.location.href = response.data.url;
+      const { subscriptionId, keyId, amount, currency, email, name } = response.data;
+
+      // Load Razorpay script dynamically
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      document.body.appendChild(script);
+
+      script.onload = () => {
+        const options = {
+          key: keyId,
+          subscription_id: subscriptionId,
+          name: name || 'Smart Mailbox Cleaner',
+          description: 'Pro Monthly Subscription',
+          amount,
+          currency,
+          prefill: { email },
+          theme: { color: '#2563eb' },
+          handler: async (response) => {
+            try {
+              // Verify payment on backend
+              await fetch(`${import.meta.env.VITE_API_URL}/subscription/verify`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                },
+                body: JSON.stringify(response),
+              });
+              navigate('/dashboard?upgrade=success');
+            } catch (err) {
+              alert('Payment verification failed. Please contact support.');
+            }
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+        setLoading(false);
+      };
     } catch {
       alert('Failed to start checkout. Please try again.');
-    } finally {
       setLoading(false);
     }
   }
@@ -57,7 +95,7 @@ export default function Pricing() {
             <div className="mb-6">
               <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Free</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-gray-900">$0</span>
+                <span className="text-4xl font-bold text-gray-900">₹0</span>
                 <span className="text-gray-400">/month</span>
               </div>
             </div>
@@ -87,7 +125,7 @@ export default function Pricing() {
             <div className="mb-6">
               <p className="text-sm font-semibold text-brand-200 uppercase tracking-wide mb-1">Pro</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-white">$5</span>
+                <span className="text-4xl font-bold text-white">₹5</span>
                 <span className="text-brand-300">/month</span>
               </div>
             </div>

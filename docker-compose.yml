@@ -40,9 +40,10 @@ services:
       JWT_ACCESS_SECRET: your_jwt_access_secret_here
       JWT_REFRESH_SECRET: your_jwt_refresh_secret_here
       ENCRYPTION_KEY: your_encryption_key_here
-      STRIPE_SECRET_KEY: sk_test_your_stripe_secret_key
-      STRIPE_WEBHOOK_SECRET: whsec_your_webhook_secret
-      STRIPE_PRO_PRICE_ID: price_your_price_id
+      RAZORPAY_KEY_ID: rzp_test_SIFbp2DJd2WKwX
+      RAZORPAY_KEY_SECRET: 0tDHyiZ5jqlZKNqAFUN7jVyr
+      RAZORPAY_WEBHOOK_SECRET: your_webhook_secret
+      RAZORPAY_PLAN_ID: ""
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,7 +60,7 @@ services:
       - /app/node_modules
     environment:
       VITE_API_URL: http://localhost:3001
-      VITE_STRIPE_PUBLISHABLE_KEY: pk_test_your_publishable_key
+      VITE_RAZORPAY_KEY_ID: rzp_test_SIFbp2DJd2WKwX
       VITE_APP_URL: http://localhost:5173
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:

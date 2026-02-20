@@ -8,38 +8,58 @@ const {
   createPortalSession,
   handleWebhook,
   getSubscriptionStatus,
+  verifyAndActivatePayment,
 } = require('../services/stripeService');
 const logger = require('../utils/logger');
 
 /**
  * POST /subscription/checkout
- * Create a Stripe Checkout session for Pro plan.
+ * Create a Razorpay subscription for Pro plan.
  */
 router.post('/checkout', requireAuth, async (req, res) => {
   try {
-    const { sessionId, url } = await createCheckoutSession(
+    const checkoutData = await createCheckoutSession(
       req.user.id,
       req.user.email,
       req.user.displayName
     );
 
-    return res.json({ sessionId, url });
+    return res.json(checkoutData);
   } catch (err) {
-    logger.error('Stripe checkout session creation failed', err);
-    return res.status(500).json({ error: 'Failed to create checkout session.' });
+    logger.error('Razorpay checkout creation failed', err);
+    return res.status(500).json({ error: 'Failed to create checkout.' });
+  }
+});
+
+/**
+ * POST /subscription/verify
+ * Called after Razorpay frontend payment success to verify + activate.
+ */
+router.post('/verify', requireAuth, async (req, res) => {
+  const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
+  try {
+    await verifyAndActivatePayment(req.user.id, {
+      razorpay_payment_id,
+      razorpay_subscription_id,
+      razorpay_signature,
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('Razorpay verification failed', err);
+    return res.status(400).json({ error: err.message });
   }
 });
 
 /**
  * POST /subscription/portal
- * Create a Stripe Customer Portal session.
+ * Create a Razorpay Customer Portal session.
  */
 router.post('/portal', requireAuth, async (req, res) => {
   try {
     const { url } = await createPortalSession(req.user.id);
     return res.json({ url });
   } catch (err) {
-    logger.error('Stripe portal session creation failed', err);
+    logger.error('Razorpay portal session creation failed', err);
     return res.status(500).json({ error: err.message || 'Failed to open billing portal.' });
   }
 });
@@ -60,22 +80,22 @@ router.get('/status', requireAuth, async (req, res) => {
 
 /**
  * POST /subscription/webhook
- * Stripe webhook endpoint.
+ * Razorpay webhook endpoint.
  * IMPORTANT: Uses raw body (must be before express.json() in middleware chain).
  * Verify signature before processing any event.
  */
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const signature = req.headers['stripe-signature'];
+  const signature = req.headers['x-razorpay-signature'];
 
   if (!signature) {
-    return res.status(400).json({ error: 'Missing Stripe signature.' });
+    return res.status(400).json({ error: 'Missing Razorpay signature.' });
   }
 
   try {
     await handleWebhook(req.body, signature);
     return res.json({ received: true });
   } catch (err) {
-    logger.error('Stripe webhook processing failed', err);
+    logger.error('Razorpay webhook processing failed', err);
     return res.status(400).json({ error: err.message });
   }
 });

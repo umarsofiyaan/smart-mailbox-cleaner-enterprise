@@ -1,238 +1,171 @@
-// src/services/stripeService.js
-const stripe = require('../config/stripe');
+// src/services/stripeService.js (Razorpay version)
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
 
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const PLAN_AMOUNT = 500; // ₹5 in paise (500 paise = ₹5)
+
 /**
- * Create or retrieve a Stripe customer for a user.
+ * Create a Razorpay subscription plan (run once to set up)
  */
-async function getOrCreateCustomer(userId, email, displayName) {
-  // Check if customer already exists
-  const result = await query(
-    'SELECT stripe_customer_id FROM subscription_status WHERE user_id = $1',
-    [userId]
-  );
-
-  if (result.rows[0]?.stripe_customer_id) {
-    return result.rows[0].stripe_customer_id;
-  }
-
-  const customer = await stripe.customers.create({
-    email,
-    name: displayName,
-    metadata: { userId },
+async function getOrCreatePlan() {
+  const planId = process.env.RAZORPAY_PLAN_ID;
+  if (planId) return planId;
+  
+  const plan = await razorpay.plans.create({
+    period: 'monthly',
+    interval: 1,
+    item: {
+      name: 'Smart Mailbox Cleaner Pro',
+      amount: PLAN_AMOUNT,
+      currency: 'INR',
+      description: 'Pro monthly subscription',
+    },
   });
-
-  // Upsert subscription_status record
-  await query(
-    `INSERT INTO subscription_status (user_id, stripe_customer_id, plan, status)
-     VALUES ($1, $2, 'free', 'active')
-     ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2`,
-    [userId, customer.id]
-  );
-
-  return customer.id;
+  
+  logger.info('Created Razorpay plan', { planId: plan.id });
+  return plan.id;
 }
 
 /**
- * Create a Stripe Checkout session for Pro subscription.
+ * Create a Razorpay subscription for a user.
+ * Returns subscription ID — frontend uses this with Razorpay.js to collect payment.
  */
 async function createCheckoutSession(userId, email, displayName) {
-  const customerId = await getOrCreateCustomer(userId, email, displayName);
+  const planId = await getOrCreatePlan();
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: 'subscription',
-    payment_method_types: ['card'],
-    line_items: [
-      {
-        price: process.env.STRIPE_PRO_PRICE_ID,
-        quantity: 1,
-      },
-    ],
-    success_url: `${process.env.FRONTEND_URL}/dashboard?upgrade=success`,
-    cancel_url: `${process.env.FRONTEND_URL}/pricing?upgrade=cancelled`,
-    subscription_data: {
-      metadata: { userId },
-      trial_period_days: 0,
+  const subscription = await razorpay.subscriptions.create({
+    plan_id: planId,
+    customer_notify: 1,
+    quantity: 1,
+    total_count: 12, // 12 months, then auto-renews
+    notes: {
+      userId,
+      email,
     },
-    allow_promotion_codes: true,
-    metadata: { userId },
   });
 
-  return { sessionId: session.id, url: session.url };
-}
-
-/**
- * Create a Stripe Customer Portal session for managing subscription.
- */
-async function createPortalSession(userId) {
-  const result = await query(
-    'SELECT stripe_customer_id FROM subscription_status WHERE user_id = $1',
-    [userId]
+  // Store pending subscription
+  await query(
+    `INSERT INTO subscription_status (user_id, stripe_customer_id, plan, status)
+     VALUES ($1, $2, 'free', 'pending')
+     ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2`,
+    [userId, subscription.id]
   );
 
-  if (!result.rows[0]?.stripe_customer_id) {
-    throw new Error('No Stripe customer found. Please subscribe first.');
-  }
-
-  const session = await stripe.billingPortal.sessions.create({
-    customer: result.rows[0].stripe_customer_id,
-    return_url: `${process.env.FRONTEND_URL}/dashboard`,
-  });
-
-  return { url: session.url };
+  return {
+    subscriptionId: subscription.id,
+    keyId: process.env.RAZORPAY_KEY_ID,
+    amount: PLAN_AMOUNT,
+    currency: 'INR',
+    name: 'Smart Mailbox Cleaner Pro',
+    email,
+  };
 }
 
 /**
- * Handle Stripe webhooks — subscription lifecycle events.
- * Call with raw body Buffer and signature header.
+ * Verify Razorpay payment signature (called after frontend payment success)
  */
-async function handleWebhook(rawBody, signature) {
-  let event;
+async function verifyAndActivatePayment(userId, { razorpay_payment_id, razorpay_subscription_id, razorpay_signature }) {
+  // Verify signature
+  const body = razorpay_payment_id + '|' + razorpay_subscription_id;
+  const expectedSignature = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+    .update(body)
+    .digest('hex');
 
-  try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    logger.error('Stripe webhook signature verification failed', err);
-    throw new Error(`Webhook signature invalid: ${err.message}`);
+  if (expectedSignature !== razorpay_signature) {
+    throw new Error('Payment signature verification failed.');
   }
 
-  logger.info('Stripe webhook received', { type: event.type });
+  // Activate subscription
+  const periodEnd = new Date();
+  periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object;
-      if (session.mode === 'subscription') {
-        await activateSubscription(session);
-      }
+  await query(
+    `UPDATE subscription_status
+     SET plan = 'pro',
+         status = 'active',
+         stripe_subscription_id = $1,
+         current_period_end = $2
+     WHERE user_id = $3`,
+    [razorpay_subscription_id, periodEnd, userId]
+  );
+
+  logger.info('Razorpay subscription activated', { userId, razorpay_subscription_id });
+  return { success: true };
+}
+
+/**
+ * Handle Razorpay webhooks
+ */
+async function handleWebhook(rawBody, signature) {
+  const expectedSignature = crypto
+    .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest('hex');
+
+  if (expectedSignature !== signature) {
+    throw new Error('Webhook signature invalid.');
+  }
+
+  const event = JSON.parse(rawBody);
+  logger.info('Razorpay webhook', { event: event.event });
+
+  switch (event.event) {
+    case 'subscription.activated':
+    case 'subscription.charged': {
+      const sub = event.payload.subscription.entity;
+      const periodEnd = new Date(sub.current_end * 1000);
+      await query(
+        `UPDATE subscription_status
+         SET plan = 'pro', status = 'active', current_period_end = $1
+         WHERE stripe_subscription_id = $2`,
+        [periodEnd, sub.id]
+      );
       break;
     }
-
-    case 'customer.subscription.updated': {
-      const sub = event.data.object;
-      await updateSubscriptionStatus(sub);
+    case 'subscription.cancelled':
+    case 'subscription.expired': {
+      const sub = event.payload.subscription.entity;
+      await query(
+        `UPDATE subscription_status SET plan = 'free', status = 'canceled'
+         WHERE stripe_subscription_id = $1`,
+        [sub.id]
+      );
       break;
     }
-
-    case 'customer.subscription.deleted': {
-      const sub = event.data.object;
-      await cancelSubscription(sub);
+    case 'subscription.halted': {
+      const sub = event.payload.subscription.entity;
+      await query(
+        `UPDATE subscription_status SET status = 'past_due'
+         WHERE stripe_subscription_id = $1`,
+        [sub.id]
+      );
       break;
     }
-
-    case 'invoice.payment_failed': {
-      const invoice = event.data.object;
-      await markPastDue(invoice);
-      break;
-    }
-
-    case 'invoice.payment_succeeded': {
-      const invoice = event.data.object;
-      if (invoice.subscription) {
-        await renewSubscription(invoice);
-      }
-      break;
-    }
-
-    default:
-      logger.info('Unhandled Stripe event type', { type: event.type });
   }
 
   return { received: true };
 }
 
-async function activateSubscription(session) {
-  const userId = session.metadata?.userId;
-  if (!userId) return;
-
-  const subscription = await stripe.subscriptions.retrieve(session.subscription);
-
-  await query(
-    `UPDATE subscription_status
-     SET plan = 'pro',
-         status = $1,
-         stripe_subscription_id = $2,
-         current_period_end = to_timestamp($3)
-     WHERE user_id = $4`,
-    [
-      subscription.status,
-      subscription.id,
-      subscription.current_period_end,
-      userId,
-    ]
-  );
-
-  logger.info('Subscription activated', { userId, subscriptionId: subscription.id });
+async function createPortalSession(userId) {
+  // Razorpay has no hosted portal — direct users to contact support or cancel via API
+  return { url: `${process.env.FRONTEND_URL}/dashboard?manage=subscription` };
 }
 
-async function updateSubscriptionStatus(subscription) {
-  const userId = subscription.metadata?.userId;
-  if (!userId) return;
-
-  await query(
-    `UPDATE subscription_status
-     SET status = $1,
-         current_period_end = to_timestamp($2),
-         plan = $3
-     WHERE stripe_subscription_id = $4`,
-    [
-      subscription.status,
-      subscription.current_period_end,
-      subscription.status === 'active' ? 'pro' : 'free',
-      subscription.id,
-    ]
-  );
-}
-
-async function cancelSubscription(subscription) {
-  await query(
-    `UPDATE subscription_status
-     SET plan = 'free', status = 'canceled'
-     WHERE stripe_subscription_id = $1`,
-    [subscription.id]
-  );
-  logger.info('Subscription canceled', { subscriptionId: subscription.id });
-}
-
-async function markPastDue(invoice) {
-  if (!invoice.subscription) return;
-  await query(
-    `UPDATE subscription_status SET status = 'past_due' WHERE stripe_subscription_id = $1`,
-    [invoice.subscription]
-  );
-}
-
-async function renewSubscription(invoice) {
-  if (!invoice.subscription) return;
-  const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-  await query(
-    `UPDATE subscription_status
-     SET status = 'active',
-         current_period_end = to_timestamp($1)
-     WHERE stripe_subscription_id = $2`,
-    [subscription.current_period_end, invoice.subscription]
-  );
-}
-
-/**
- * Get subscription status for a user
- */
 async function getSubscriptionStatus(userId) {
   const result = await query(
-    `SELECT plan, status, current_period_end, stripe_customer_id
-     FROM subscription_status WHERE user_id = $1`,
+    `SELECT plan, status, current_period_end FROM subscription_status WHERE user_id = $1`,
     [userId]
   );
-
-  if (result.rows.length === 0) {
-    return { plan: 'free', status: 'active', currentPeriodEnd: null };
-  }
-
+  if (!result.rows[0]) return { plan: 'free', status: 'active', isPro: false };
   const row = result.rows[0];
   return {
     plan: row.plan,
@@ -244,8 +177,8 @@ async function getSubscriptionStatus(userId) {
 
 module.exports = {
   createCheckoutSession,
+  verifyAndActivatePayment,
   createPortalSession,
   handleWebhook,
   getSubscriptionStatus,
-  getOrCreateCustomer,
 };
