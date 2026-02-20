@@ -37,8 +37,12 @@ const allowedOrigins = [
 
 const corsMiddleware = cors({
   origin: (origin, callback) => {
-    // Allow no-origin requests (e.g. Postman in dev) only in development
-    if (!origin && process.env.NODE_ENV === 'development') {
+    // Allow no-origin requests (e.g. browser direct access, Postman) in development
+    if (!origin) {
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      // In production, allow direct browser access for health checks
       return callback(null, true);
     }
     if (allowedOrigins.includes(origin)) {
