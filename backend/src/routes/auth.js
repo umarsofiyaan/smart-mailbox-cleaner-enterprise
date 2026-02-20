@@ -111,11 +111,10 @@ router.get('/google/callback', authLimiter, async (req, res) => {
       );
     }
 
-    // Web dashboard — set HttpOnly cookies
-    res.cookie('access_token', accessToken, COOKIE_OPTIONS);
-    res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTIONS);
-
-    return res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
+    // Web dashboard — redirect with tokens in URL fragment
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/dashboard?access_token=${accessToken}&refresh_token=${refreshToken}`
+    );
 
   } catch (err) {
     logger.error('OAuth callback failed', err);
