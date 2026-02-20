@@ -52,7 +52,10 @@ app.get('/health', (req, res) => {
 });
 
 // ── API Routes ───────────────────────────────────────────────
-app.use('/auth', authRoutes);
+app.use('/auth', (req, res, next) => {
+  logger.info(`Auth route: ${req.method} ${req.path}`);
+  next();
+}, authRoutes);
 app.use('/scan', scanRoutes);
 app.use('/cleanup', cleanupRoutes);
 app.use('/subscription', subscriptionRoutes);
