@@ -147,11 +147,17 @@ async function migrate() {
   try {
     await pool.query(MIGRATION_SQL);
     console.log('✅ Migrations complete.');
+    process.exit(0);
   } catch (err) {
     console.error('❌ Migration failed:', err.message);
+    console.error(err);
     process.exit(1);
   } finally {
-    await pool.end();
+    try {
+      await pool.end();
+    } catch (poolErr) {
+      console.error('Error closing pool:', poolErr);
+    }
   }
 }
 
