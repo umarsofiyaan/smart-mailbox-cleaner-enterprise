@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Mailbox Cleaner",
+  "version": "1.0.0",
+  "description": "Free up Gmail storage safely. Scan, identify, and clean up space-wasting emails.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "Smart Mailbox Cleaner"
+  },
+  "background": {
+    "service_worker": "background/service_worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "identity",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://api.mailboxcleaner.umarsofiyaan.shop/*",
+    "https://app.mailboxcleaner.umarsofiyaan.shop/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://api.mailboxcleaner.umarsofiyaan.shop https://app.mailboxcleaner.umarsofiyaan.shop;"
+  },
+  "oauth2": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  }
+}
