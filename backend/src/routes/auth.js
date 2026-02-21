@@ -24,14 +24,14 @@ const logger = require('../utils/logger');
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge: 15 * 60 * 1000, // 15 minutes (access token lifetime)
+  sameSite: 'none', // Must be 'none' for cross-origin (Render backend + Cloudflare frontend)
+  maxAge: 60 * 60 * 1000, // 1 hour (access token lifetime — increased from 15min)
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
+  sameSite: 'none', // Must be 'none' for cross-origin
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   path: '/auth/refresh',
 };
@@ -40,10 +40,12 @@ const REFRESH_COOKIE_OPTIONS = {
  * GET /auth/google
  * Initiate OAuth flow. Returns redirect URL.
  * Accepts optional `state` query param (used by extension).
+ * Accepts optional `force` query param to force consent screen.
  */
 router.get('/google', authLimiter, (req, res) => {
   const state = req.query.state || '';
-  const authUrl = getAuthUrl(state);
+  const forceConsent = req.query.force === 'true';
+  const authUrl = getAuthUrl(state, forceConsent);
   res.json({ url: authUrl });
 });
 
@@ -67,13 +69,36 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     // Exchange code for tokens
     const tokens = await exchangeCode(code);
 
-    if (!tokens.refresh_token) {
-      // User has already authorized — prompt re-consent
-      return res.redirect(`${process.env.FRONTEND_URL}/login?error=no_refresh_token&hint=revoke_access`);
-    }
-
-    // Get user profile
+    // Get user profile first so we can look up existing tokens
     const profile = await getGoogleProfile(tokens.access_token);
+
+    // If Google didn't return a refresh token (returning user who already authorized),
+    // reuse the existing stored refresh token rather than forcing re-consent.
+    if (!tokens.refresh_token) {
+      const existingUser = await query(
+        'SELECT id FROM users WHERE google_id = $1',
+        [profile.id]
+      );
+
+      if (existingUser.rows.length > 0) {
+        const existingUserId = existingUser.rows[0].id;
+        const { getOAuthTokens } = require('../services/tokenService');
+        try {
+          const existingTokens = await getOAuthTokens(existingUserId);
+          tokens.refresh_token = existingTokens.refreshToken;
+        } catch {
+          // No existing tokens — must force consent to get refresh token
+          return res.redirect(
+            `${process.env.FRONTEND_URL}/login?error=no_refresh_token`
+          );
+        }
+      } else {
+        // Brand new user but no refresh token — redirect with force consent
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/login?error=no_refresh_token`
+        );
+      }
+    }
 
     // Upsert user
     const userResult = await query(

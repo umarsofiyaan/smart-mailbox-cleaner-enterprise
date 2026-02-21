@@ -21,14 +21,18 @@ function createOAuthClient() {
 }
 
 /**
- * Generate the Google OAuth2 consent URL
+ * Generate the Google OAuth2 consent URL.
+ * forceConsent=true only when we know we need a fresh refresh token.
  */
-function getAuthUrl(state) {
+function getAuthUrl(state, forceConsent = false) {
   const client = createOAuthClient();
   return client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
-    prompt: 'consent', // Always show consent to get refresh token
+    // Only force consent screen when explicitly needed (e.g. first login or revoked access).
+    // Omitting prompt lets Google skip the consent screen for returning users
+    // while still returning a refresh token if one was previously granted.
+    ...(forceConsent ? { prompt: 'consent' } : { prompt: 'select_account' }),
     state: state || '',
     include_granted_scopes: true,
   });

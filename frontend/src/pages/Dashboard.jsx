@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { useScan } from '../hooks/useScan';
@@ -28,8 +28,21 @@ export default function Dashboard() {
   const [pendingCleanup, setPendingCleanup] = useState(null);
   const [undoAction, setUndoAction] = useState(null);
   const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
 
   const isPro = user?.subscription?.isPro;
+
+  // Close profile menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
@@ -112,31 +125,36 @@ export default function Dashboard() {
               </button>
             )}
 
-            <div className="relative group">
-              <button className="flex items-center gap-2">
+            <div className="relative" ref={profileMenuRef}>
+              <button
+                onClick={() => setProfileMenuOpen(prev => !prev)}
+                className="flex items-center gap-2 focus:outline-none"
+              >
                 {user?.avatarUrl
                   ? <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
                   : <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 font-semibold text-sm">{user?.displayName?.[0]}</div>
                 }
               </button>
 
-              <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-gray-100 py-1 hidden group-hover:block">
-                <div className="px-4 py-2 border-b border-gray-50">
-                  <p className="font-medium text-sm text-gray-900 truncate">{user?.displayName}</p>
-                  <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-                </div>
-                {isPro && (
-                  <button onClick={handleManageSubscription} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
-                    Manage subscription
+              {profileMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+                  <div className="px-4 py-2 border-b border-gray-50">
+                    <p className="font-medium text-sm text-gray-900 truncate">{user?.displayName}</p>
+                    <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+                  </div>
+                  {isPro && (
+                    <button onClick={() => { handleManageSubscription(); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                      Manage subscription
+                    </button>
+                  )}
+                  <button onClick={() => { navigate('/pricing'); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                    Pricing
                   </button>
-                )}
-                <button onClick={() => navigate('/pricing')} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
-                  Pricing
-                </button>
-                <button onClick={logout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50">
-                  Sign out
-                </button>
-              </div>
+                  <button onClick={() => { logout(); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50">
+                    Sign out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -186,7 +204,20 @@ export default function Dashboard() {
         {error && (
           <div className="bg-red-50 border border-red-100 rounded-xl px-5 py-4 mb-6">
             <p className="text-red-700 font-medium">Scan failed: {error}</p>
-            <button onClick={() => startScan()} className="text-red-600 text-sm underline mt-1">Try again</button>
+            {(error.toLowerCase().includes('api') || error.toLowerCase().includes('disabled') || error.toLowerCase().includes('accessnotconfigured')) && (
+              <p className="text-red-600 text-sm mt-2">
+                💡 It looks like Gmail API may not be enabled.{' '}
+                <a
+                  href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline font-semibold"
+                >
+                  Enable it here →
+                </a>
+              </p>
+            )}
+            <button onClick={() => startScan()} className="text-red-600 text-sm underline mt-2 block">Try again</button>
           </div>
         )}
 

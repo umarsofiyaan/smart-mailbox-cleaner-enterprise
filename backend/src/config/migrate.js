@@ -37,11 +37,11 @@ CREATE TABLE IF NOT EXISTS scans (
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   status VARCHAR(50) DEFAULT 'pending',
   scan_depth VARCHAR(20) DEFAULT '12months',
-  total_messages_scanned INTEGER DEFAULT 0,
+  total_messages_scanned BIGINT DEFAULT 0,
   storage_used_bytes BIGINT DEFAULT 0,
   storage_quota_bytes BIGINT DEFAULT 0,
   storage_growth_daily_bytes BIGINT DEFAULT 0,
-  estimated_days_until_full INTEGER,
+  estimated_days_until_full BIGINT,
   categories_json JSONB DEFAULT '[]',
   confidence_summary JSONB DEFAULT '{}',
   estimated_bytes_freeable BIGINT DEFAULT 0,
@@ -106,7 +106,25 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Fix integer overflow on existing databases (safe to run multiple times)
+ALTER TABLE scans ALTER COLUMN total_messages_scanned TYPE BIGINT;
+ALTER TABLE scans ALTER COLUMN estimated_days_until_full TYPE BIGINT;
+
+-- Track original labels per message before trashing (for correct undo restore)
+CREATE TABLE IF NOT EXISTS message_original_labels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  action_id UUID REFERENCES cleanup_actions(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  label_ids TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Track whether a user has seen the onboarding guide
+ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
+
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_message_labels_action_id ON message_original_labels(action_id);
+CREATE INDEX IF NOT EXISTS idx_message_labels_message_id ON message_original_labels(message_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_user_id ON scans(user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);

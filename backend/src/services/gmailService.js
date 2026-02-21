@@ -79,10 +79,10 @@ async function getStorageQuota(accessToken, refreshToken) {
 
   const quota = res.data.storageQuota;
   return {
-    storageUsedBytes: parseInt(quota.usage) || 0,
-    storageQuotaBytes: parseInt(quota.limit) || 0,
-    driveUsedBytes: parseInt(quota.usageInDrive) || 0,
-    gmailUsedBytes: parseInt(quota.usageInDriveTrash) || 0,
+    storageUsedBytes: Number(quota.usage) || 0,
+    storageQuotaBytes: Number(quota.limit) || 0,
+    driveUsedBytes: Number(quota.usageInDrive) || 0,
+    gmailUsedBytes: Number(quota.usageInDriveTrash) || 0,
   };
 }
 
@@ -144,7 +144,7 @@ async function getMessageMetadata(gmail, messageId) {
     threadId: msg.threadId,
     labelIds: msg.labelIds || [],
     sizeEstimate: msg.sizeEstimate || 0,
-    internalDate: parseInt(msg.internalDate) || 0,
+    internalDate: Number(msg.internalDate) || 0,
     from: headers['from'] || '',
     subject: headers['subject'] || '',
     date: headers['date'] || '',

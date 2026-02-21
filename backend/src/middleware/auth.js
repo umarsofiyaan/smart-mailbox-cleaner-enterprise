@@ -61,13 +61,13 @@ async function requireAuth(req, res, next) {
 }
 
 /**
- * Generate a short-lived JWT access token (15 min)
+ * Generate a short-lived JWT access token (1 hour)
  */
 function generateAccessToken(userId, email) {
   return jwt.sign(
     { userId, email, type: 'access' },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' }
+    { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h' }
   );
 }
 

@@ -204,7 +204,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
     const previousScan = await getPreviousScan(userId, scanId);
     const storageGrowthDailyBytes = calculateDailyGrowth(storageInfo.storageUsedBytes, previousScan);
     const estimatedDaysUntilFull = storageGrowthDailyBytes > 0
-      ? Math.floor((storageInfo.storageQuotaBytes - storageInfo.storageUsedBytes) / storageGrowthDailyBytes)
+      ? Math.min(Math.floor((storageInfo.storageQuotaBytes - storageInfo.storageUsedBytes) / storageGrowthDailyBytes), 9999)
       : null;
 
     const confidenceSummary = buildConfidenceSummary(categoryResults);
