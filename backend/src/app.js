@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const scanRoutes = require('./routes/scan');
 const cleanupRoutes = require('./routes/cleanup');
 const subscriptionRoutes = require('./routes/subscription');
+const adminRoutes = require('./routes/admin'); // FIX: was never imported
 const { startWorker } = require('./jobs/worker');
 const logger = require('./utils/logger');
 
@@ -17,13 +18,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ── Security middleware ─────────────────────────────────────
-app.set('trust proxy', 1); // Required when behind Render/Railway reverse proxy
+app.set('trust proxy', 1);
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(generalLimiter);
 
 // ── Stripe webhook MUST use raw body — register BEFORE json parser ─
-// The route itself handles express.raw() inline
 app.use('/subscription/webhook', subscriptionRoutes);
 
 // ── Standard middleware ─────────────────────────────────────
@@ -37,7 +37,6 @@ if (process.env.NODE_ENV !== 'test') {
     stream: {
       write: (msg) => logger.info(msg.trim()),
     },
-    // Never log Authorization headers
     skip: () => false,
   }));
 }
@@ -59,6 +58,7 @@ app.use('/auth', (req, res, next) => {
 app.use('/scan', scanRoutes);
 app.use('/cleanup', cleanupRoutes);
 app.use('/subscription', subscriptionRoutes);
+app.use('/admin', adminRoutes); // FIX: this line was completely missing — caused "No users found"
 
 // ── 404 handler ──────────────────────────────────────────────
 app.use((req, res) => {
@@ -90,7 +90,6 @@ app.listen(PORT, () => {
     frontend: process.env.FRONTEND_URL,
   });
 
-  // Start background job worker
   startWorker();
 });
 

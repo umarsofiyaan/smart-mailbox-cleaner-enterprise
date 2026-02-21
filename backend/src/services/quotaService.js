@@ -12,7 +12,6 @@ const logger = require('../utils/logger');
  */
 async function getQuota(userId) {
   try {
-    // Try to get existing record
     let result = await query(
       'SELECT * FROM user_quota WHERE user_id = $1',
       [userId]
@@ -63,41 +62,27 @@ async function getQuota(userId) {
  * 1. User is NOT Pro
  * 2. Lifetime quota is exhausted (lifetime_used >= lifetime_allowance)
  * 3. Today is a new day (daily_quota_granted_at is in the past)
- * 
+ *
  * SAFE TO CALL MULTIPLE TIMES PER LOGIN.
  */
 async function grantDailyQuotaOnLogin(userId) {
   try {
-    // Get user subscription
     const subResult = await query(
       "SELECT plan, status FROM subscription_status WHERE user_id = $1",
       [userId]
     );
 
     const isPro = subResult.rows[0]?.plan === 'pro' && subResult.rows[0]?.status === 'active';
-    if (isPro) {
-      // Pro users don't need quota granting
-      return;
-    }
+    if (isPro) return;
 
     const quota = await getQuota(userId);
     const now = new Date();
     const todayUTC = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0);
 
-    // Only grant if:
-    // 1. Lifetime exhausted
-    // 2. Grant hasn't happened today
-    if (quota.lifetimeUsed < quota.lifetimeAllowance) {
-      // Lifetime still available, don't grant daily
-      return;
-    }
+    if (quota.lifetimeUsed < quota.lifetimeAllowance) return;
 
-    if (quota.dailyGrantedAt && new Date(quota.dailyGrantedAt) >= todayUTC) {
-      // Already granted today
-      return;
-    }
+    if (quota.dailyGrantedAt && new Date(quota.dailyGrantedAt) >= todayUTC) return;
 
-    // Grant 50 emails for today
     const nextMidnightUTC = new Date(todayUTC.getTime() + 24 * 60 * 60 * 1000);
 
     await query(
@@ -110,23 +95,15 @@ async function grantDailyQuotaOnLogin(userId) {
     logger.info('Daily quota granted on login', { userId });
   } catch (err) {
     logger.error('Failed to grant daily quota on login', err, { userId });
-    // Don't throw — this is non-critical
   }
 }
 
 /**
  * Check if user can execute cleanup.
  * Returns { allowed: boolean, remaining: number, reason: string }
- * 
- * Pro users: allowed = true, remaining = unlimited
- * Free users:
- *   - If lifetime not exhausted: allowed = true, remaining = lifetime_remaining
- *   - If lifetime exhausted AND daily available: allowed = true, remaining = daily_remaining
- *   - If both exhausted: allowed = false, reason = upgrade message
  */
 async function checkQuota(userId) {
   try {
-    // Check subscription
     const subResult = await query(
       "SELECT plan, status FROM subscription_status WHERE user_id = $1",
       [userId]
@@ -135,14 +112,9 @@ async function checkQuota(userId) {
     const isPro = subResult.rows[0]?.plan === 'pro' && subResult.rows[0]?.status === 'active';
 
     if (isPro) {
-      return {
-        allowed: true,
-        remaining: Infinity,
-        reason: 'Pro user — unlimited',
-      };
+      return { allowed: true, remaining: Infinity, reason: 'Pro user — unlimited' };
     }
 
-    // Free user quota check
     const quota = await getQuota(userId);
 
     const lifetimeRemaining = Math.max(0, quota.lifetimeAllowance - quota.lifetimeUsed);
@@ -171,45 +143,47 @@ async function checkQuota(userId) {
     };
   } catch (err) {
     logger.error('Failed to check quota', err, { userId });
-    // Default to allowed on error (don't block)
     return { allowed: true, remaining: Infinity, reason: 'Error checking quota' };
   }
 }
 
 /**
  * Consume quota after a successful cleanup.
- * emailCount: number of emails deleted
  * 
- * Deducts from daily first (if available), then lifetime.
+ * FIX: Deducts from LIFETIME first (while available), then DAILY.
+ * Previously it was backwards — daily was consumed first, leaving
+ * lifetime_used stuck at 0 so the banner never updated.
  */
 async function consumeQuota(userId, emailCount) {
   try {
     const quota = await getQuota(userId);
 
-    let dailyUsed = quota.dailyUsed;
     let lifetimeUsed = quota.lifetimeUsed;
+    let dailyUsed = quota.dailyUsed;
 
-    // Use from daily first
-    const dailyRemaining = Math.max(0, quota.dailyAllowance - dailyUsed);
-    const dailyConsume = Math.min(emailCount, dailyRemaining);
-    dailyUsed += dailyConsume;
-
-    // Then use from lifetime
+    // ── Step 1: Consume from lifetime first ───────────────────────────
     const lifetimeRemaining = Math.max(0, quota.lifetimeAllowance - lifetimeUsed);
-    const lifetimeConsume = Math.min(emailCount - dailyConsume, lifetimeRemaining);
+    const lifetimeConsume = Math.min(emailCount, lifetimeRemaining);
     lifetimeUsed += lifetimeConsume;
+
+    // ── Step 2: If lifetime is exhausted, overflow into daily ─────────
+    const overflow = emailCount - lifetimeConsume;
+    if (overflow > 0) {
+      const dailyRemaining = Math.max(0, quota.dailyAllowance - dailyUsed);
+      const dailyConsume = Math.min(overflow, dailyRemaining);
+      dailyUsed += dailyConsume;
+    }
 
     await query(
       `UPDATE user_quota 
-       SET daily_used = $2, lifetime_used = $3, updated_at = NOW()
+       SET lifetime_used = $2, daily_used = $3, updated_at = NOW()
        WHERE user_id = $1`,
-      [userId, dailyUsed, lifetimeUsed]
+      [userId, lifetimeUsed, dailyUsed]
     );
 
-    logger.info('Quota consumed', { userId, emailCount, dailyConsume, lifetimeConsume });
+    logger.info('Quota consumed', { userId, emailCount, lifetimeConsume, overflow });
   } catch (err) {
     logger.error('Failed to consume quota', err, { userId, emailCount });
-    // Don't throw — this is post-cleanup accounting
   }
 }
 
@@ -254,7 +228,7 @@ async function getQuotaSummary(userId) {
         grantedAt: quota.dailyGrantedAt,
         resetAt: quota.dailyResetAt,
       },
-      message: 
+      message:
         lifetimeRemaining > 0
           ? `${lifetimeRemaining} emails remaining this lifetime`
           : `${dailyRemaining} emails remaining today (resets at midnight UTC)`,
@@ -267,7 +241,6 @@ async function getQuotaSummary(userId) {
 
 /**
  * Admin: manually set a user's quota.
- * Body: { lifetimeAllowance, lifetimeUsed, dailyAllowance }
  */
 async function adminSetQuota(userId, { lifetimeAllowance = 500, lifetimeUsed = 0, dailyAllowance = 50 }) {
   try {

@@ -24,16 +24,14 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
-// All admin routes require auth + admin
 router.use(requireAuth, requireAdmin);
 
 /**
  * GET /admin/users
- * List all users with subscription + quota info.
- * Supports ?search=email query param.
+ * List all users with subscription, quota, stats, and last action info.
  */
 router.get('/users', async (req, res) => {
-  const { search, limit = 50, offset = 0 } = req.query;
+  const { search, limit = 200, offset = 0 } = req.query;
 
   try {
     let sql = `
@@ -43,7 +41,14 @@ router.get('/users', async (req, res) => {
         q.lifetime_allowance, q.lifetime_used, q.daily_allowance, q.daily_used,
         q.daily_quota_granted_at,
         (SELECT COUNT(*) FROM scans sc WHERE sc.user_id = u.id AND sc.status = 'complete') AS scan_count,
-        (SELECT COUNT(*) FROM cleanup_actions ca WHERE ca.user_id = u.id AND ca.status = 'complete') AS cleanup_count
+        (SELECT COUNT(*) FROM cleanup_actions ca WHERE ca.user_id = u.id AND ca.status = 'complete') AS cleanup_count,
+        (SELECT SUM(bytes_freed) FROM cleanup_actions ca WHERE ca.user_id = u.id AND ca.status = 'complete') AS total_bytes_freed,
+        -- Last cleanup action details
+        (SELECT ca2.executed_at FROM cleanup_actions ca2 WHERE ca2.user_id = u.id AND ca2.status = 'complete' ORDER BY ca2.executed_at DESC LIMIT 1) AS last_action_at,
+        (SELECT ca2.category FROM cleanup_actions ca2 WHERE ca2.user_id = u.id AND ca2.status = 'complete' ORDER BY ca2.executed_at DESC LIMIT 1) AS last_action_category,
+        (SELECT ca2.message_count FROM cleanup_actions ca2 WHERE ca2.user_id = u.id AND ca2.status = 'complete' ORDER BY ca2.executed_at DESC LIMIT 1) AS last_action_count,
+        -- Last scan date
+        (SELECT sc2.completed_at FROM scans sc2 WHERE sc2.user_id = u.id AND sc2.status = 'complete' ORDER BY sc2.completed_at DESC LIMIT 1) AS last_scan_at
       FROM users u
       LEFT JOIN subscription_status s ON s.user_id = u.id
       LEFT JOIN user_quota q ON q.user_id = u.id
@@ -60,7 +65,6 @@ router.get('/users', async (req, res) => {
 
     const result = await query(sql, params);
 
-    // Count total
     let countSql = 'SELECT COUNT(*) FROM users u';
     const countParams = [];
     if (search) {
@@ -93,7 +97,14 @@ router.get('/users', async (req, res) => {
         stats: {
           scanCount: parseInt(row.scan_count) || 0,
           cleanupCount: parseInt(row.cleanup_count) || 0,
+          totalBytesFreed: parseInt(row.total_bytes_freed) || 0,
         },
+        lastAction: row.last_action_at ? {
+          executedAt: row.last_action_at,
+          category: row.last_action_category,
+          messageCount: parseInt(row.last_action_count) || 0,
+        } : null,
+        lastScanAt: row.last_scan_at || null,
       })),
       total: parseInt(countResult.rows[0].count),
       limit: parseInt(limit),
@@ -107,7 +118,6 @@ router.get('/users', async (req, res) => {
 
 /**
  * GET /admin/users/:userId
- * Get a single user's full detail.
  */
 router.get('/users/:userId', async (req, res) => {
   const { userId } = req.params;
@@ -152,8 +162,6 @@ router.get('/users/:userId', async (req, res) => {
 
 /**
  * PATCH /admin/users/:userId/role
- * Promote or demote a user's admin status.
- * Body: { isAdmin: true | false }
  */
 router.patch('/users/:userId/role', async (req, res) => {
   const { userId } = req.params;
@@ -173,12 +181,7 @@ router.patch('/users/:userId/role', async (req, res) => {
       [isAdmin, userId]
     );
 
-    logger.info('Admin: role updated', {
-      adminId: req.user.id,
-      targetUserId: userId,
-      isAdmin,
-    });
-
+    logger.info('Admin: role updated', { adminId: req.user.id, targetUserId: userId, isAdmin });
     return res.json({ success: true, isAdmin });
   } catch (err) {
     logger.error('Admin: failed to update role', err, { userId });
@@ -188,8 +191,6 @@ router.patch('/users/:userId/role', async (req, res) => {
 
 /**
  * PATCH /admin/users/:userId/subscription
- * Manually set a user's subscription plan.
- * Body: { plan: 'pro' | 'free', status: 'active' | 'canceled' }
  */
 router.patch('/users/:userId/subscription', async (req, res) => {
   const { userId } = req.params;
@@ -207,7 +208,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
 
   try {
     const currentPeriodEnd = plan === 'pro'
-      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // +30 days for manual pro
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       : null;
 
     await query(
@@ -218,13 +219,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
       [userId, plan, status || 'active', currentPeriodEnd]
     );
 
-    logger.info('Admin: subscription updated', {
-      adminId: req.user.id,
-      targetUserId: userId,
-      plan,
-      status,
-    });
-
+    logger.info('Admin: subscription updated', { adminId: req.user.id, targetUserId: userId, plan, status });
     return res.json({ success: true, plan, status: status || 'active', currentPeriodEnd });
   } catch (err) {
     logger.error('Admin: failed to update subscription', err, { userId });
@@ -234,8 +229,6 @@ router.patch('/users/:userId/subscription', async (req, res) => {
 
 /**
  * PATCH /admin/users/:userId/quota
- * Manually adjust a user's quota.
- * Body: { lifetimeAllowance, lifetimeUsed, dailyAllowance }
  */
 router.patch('/users/:userId/quota', async (req, res) => {
   const { userId } = req.params;
@@ -243,15 +236,7 @@ router.patch('/users/:userId/quota', async (req, res) => {
 
   try {
     await adminSetQuota(userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
-
-    logger.info('Admin: quota updated', {
-      adminId: req.user.id,
-      targetUserId: userId,
-      lifetimeAllowance,
-      lifetimeUsed,
-      dailyAllowance,
-    });
-
+    logger.info('Admin: quota updated', { adminId: req.user.id, targetUserId: userId, lifetimeAllowance, lifetimeUsed, dailyAllowance });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update quota', err, { userId });
@@ -261,7 +246,6 @@ router.patch('/users/:userId/quota', async (req, res) => {
 
 /**
  * DELETE /admin/users/:userId
- * Delete a user account and all their data.
  */
 router.delete('/users/:userId', async (req, res) => {
   const { userId } = req.params;
@@ -272,7 +256,6 @@ router.delete('/users/:userId', async (req, res) => {
 
   try {
     await query('DELETE FROM users WHERE id = $1', [userId]);
-
     logger.info('Admin: user deleted', { adminId: req.user.id, deletedUserId: userId });
     return res.json({ success: true });
   } catch (err) {
@@ -283,15 +266,15 @@ router.delete('/users/:userId', async (req, res) => {
 
 /**
  * GET /admin/stats
- * Dashboard-level stats for admin overview.
  */
 router.get('/stats', async (req, res) => {
   try {
-    const [users, proUsers, scans, cleanups] = await Promise.all([
+    const [users, proUsers, scans, cleanups, recentSignups] = await Promise.all([
       query('SELECT COUNT(*) FROM users'),
       query("SELECT COUNT(*) FROM subscription_status WHERE plan = 'pro' AND status = 'active'"),
       query("SELECT COUNT(*) FROM scans WHERE status = 'complete'"),
       query("SELECT COUNT(*), COALESCE(SUM(bytes_freed), 0) AS total_bytes FROM cleanup_actions WHERE status = 'complete'"),
+      query("SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '7 days'"),
     ]);
 
     return res.json({
@@ -300,6 +283,7 @@ router.get('/stats', async (req, res) => {
       totalScans: parseInt(scans.rows[0].count),
       totalCleanups: parseInt(cleanups.rows[0].count),
       totalBytesFreed: parseInt(cleanups.rows[0].total_bytes),
+      newUsersThisWeek: parseInt(recentSignups.rows[0].count),
     });
   } catch (err) {
     logger.error('Admin: failed to fetch stats', err);

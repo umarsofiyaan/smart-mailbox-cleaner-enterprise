@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  const [quotaRefreshKey, setQuotaRefreshKey] = useState(0); // triggers QuotaBanner re-fetch
   const [quota, setQuota] = useState(null); // free-tier quota info
   const profileMenuRef = useRef(null);
 
@@ -100,7 +101,10 @@ export default function Dashboard() {
       setPendingCleanup(null);
       setUndoAction(result);
       setHistoryKey(k => k + 1);
-      if (!isPro) loadQuota(); // refresh quota after cleanup
+      if (!isPro) {
+        loadQuota();                          // update Dashboard's own quota state
+        setQuotaRefreshKey(k => k + 1);      // trigger QuotaBanner to re-fetch too
+      }
 
     } catch (err) {
       setPendingCleanup(null);
@@ -261,7 +265,7 @@ export default function Dashboard() {
 
         {/* Quota banner for free users */}
         <div id="quota-banner">
-          <QuotaBanner isPro={isPro} />
+          <QuotaBanner isPro={isPro} refreshKey={quotaRefreshKey} />
         </div>
 
         {/* Results */}

@@ -1,22 +1,27 @@
 // src/components/QuotaBanner.jsx
 // Displays free-tier quota usage (for non-Pro users).
 // Shows lifetime + daily remaining, with upgrade link if exhausted.
+// FIX: accepts `refreshKey` prop — Dashboard increments it after each cleanup
+// to force a fresh quota fetch from the API.
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cleanupApi } from '../api/client';
 
-export default function QuotaBanner({ isPro }) {
+export default function QuotaBanner({ isPro, refreshKey = 0 }) {
   const navigate = useNavigate();
   const [quota, setQuota] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Re-fetch whenever refreshKey changes (i.e. after a cleanup action)
   useEffect(() => {
+    if (isPro) return;
     loadQuota();
-  }, []);
+  }, [isPro, refreshKey]);
 
   async function loadQuota() {
     try {
+      setLoading(true);
       const response = await cleanupApi.getQuota();
       setQuota(response.data.quota);
     } catch (err) {
@@ -28,11 +33,11 @@ export default function QuotaBanner({ isPro }) {
 
   if (isPro || loading || !quota) return null;
 
-  const isExhausted = !quota.lifetime.remaining && !quota.daily.remaining;
-
-  // Quota breakdown
+  const isExhausted = quota.lifetime.remaining === 0 && quota.daily.remaining === 0;
   const lifetimePercent = Math.min(100, (quota.lifetime.used / quota.lifetime.allowance) * 100);
-  const dailyPercent = Math.min(100, (quota.daily.used / quota.daily.allowance) * 100);
+  const dailyPercent = quota.daily.allowance
+    ? Math.min(100, (quota.daily.used / quota.daily.allowance) * 100)
+    : 0;
 
   return (
     <div className={`rounded-lg border p-4 mb-6 ${
@@ -63,7 +68,6 @@ export default function QuotaBanner({ isPro }) {
         )}
       </div>
 
-      {/* Quota bars */}
       <div className="space-y-2">
         {/* Lifetime bar */}
         {quota.lifetime.remaining !== null && (
@@ -87,7 +91,7 @@ export default function QuotaBanner({ isPro }) {
           </div>
         )}
 
-        {/* Daily bar (only show if lifetime exhausted) */}
+        {/* Daily bar — only shown after lifetime exhausted */}
         {quota.lifetime.remaining === 0 && quota.daily.remaining !== null && (
           <div>
             <div className="flex justify-between text-xs mb-1">
