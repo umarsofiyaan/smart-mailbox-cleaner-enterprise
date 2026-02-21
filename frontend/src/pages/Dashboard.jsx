@@ -148,9 +148,11 @@ export default function Dashboard() {
                     <p className="font-medium text-sm text-gray-900 truncate">{user?.displayName}</p>
                     <p className="text-xs text-gray-400 truncate">{user?.email}</p>
                   </div>
-                  <button onClick={() => { navigate('/admin'); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
-                    Admin Dashboard
-                  </button>
+                  {user?.isAdmin && (
+                    <button onClick={() => { navigate('/admin'); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                      👑 Admin Dashboard
+                    </button>
+                  )}
                   {isPro && (
                     <button onClick={() => { handleManageSubscription(); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
                       Manage subscription

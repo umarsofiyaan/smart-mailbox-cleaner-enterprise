@@ -19,12 +19,39 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [editingUserId, setEditingUserId] = useState(null);
   const [editingQuota, setEditingQuota] = useState({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // Check if user is admin
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        const response = await api.get('/auth/me');
+        if (response.data.isAdmin) {
+          setIsAdmin(true);
+          loadStats();
+          loadUsers();
+        } else {
+          // Not an admin, redirect back to dashboard
+          navigate('/dashboard');
+        }
+      } catch (err) {
+        console.error('Failed to check admin status', err);
+        navigate('/dashboard');
+      } finally {
+        setChecking(false);
+      }
+    }
+    checkAdmin();
+  }, [navigate]);
 
   // Load stats and users
   useEffect(() => {
-    loadStats();
-    loadUsers();
-  }, [search, limit, offset]);
+    if (isAdmin) {
+      loadStats();
+      loadUsers();
+    }
+  }, [search, limit, offset, isAdmin]);
 
   async function loadStats() {
     try {
@@ -92,6 +119,20 @@ export default function Admin() {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  // Show loading while checking admin status
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // If not admin, don't render anything (will redirect)
+  if (!isAdmin) {
+    return null;
   }
 
   return (
@@ -177,6 +218,7 @@ export default function Admin() {
                     <div>
                       <p className="text-sm font-medium text-gray-900">{u.displayName}</p>
                       <p className="text-xs text-gray-500">{u.email}</p>
+                      {u.isAdmin && <p className="text-xs text-brand-600 font-semibold">👑 Admin</p>}
                     </div>
                   </td>
                   <td className="px-6 py-4">

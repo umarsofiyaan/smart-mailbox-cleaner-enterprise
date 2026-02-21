@@ -219,7 +219,7 @@ router.post('/logout', requireAuth, async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.created_at,
+      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.is_admin,
               s.plan, s.status as subscription_status, s.current_period_end
        FROM users u
        LEFT JOIN subscription_status s ON s.user_id = u.id
@@ -238,6 +238,7 @@ router.get('/me', requireAuth, async (req, res) => {
       displayName: user.display_name,
       avatarUrl: user.avatar_url,
       joinedAt: user.created_at,
+      isAdmin: user.is_admin || false,
       subscription: {
         plan: user.plan || 'free',
         status: user.subscription_status || 'active',
