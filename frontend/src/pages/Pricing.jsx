@@ -125,7 +125,7 @@ export default function Pricing() {
             <div className="mb-6">
               <p className="text-sm font-semibold text-brand-200 uppercase tracking-wide mb-1">Pro</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-white">₹5</span>
+                <span className="text-4xl font-bold text-white">₹500</span>
                 <span className="text-brand-300">/month</span>
               </div>
             </div>

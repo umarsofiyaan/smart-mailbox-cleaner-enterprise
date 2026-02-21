@@ -9,7 +9,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-const PLAN_AMOUNT = 500; // ₹5 in paise (500 paise = ₹5)
+const PLAN_AMOUNT = 50000; // ₹500 in paise (50000 paise = ₹500)
 
 /**
  * Create a Razorpay subscription for a user.
