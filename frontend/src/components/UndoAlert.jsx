@@ -1,4 +1,5 @@
 // src/components/UndoAlert.jsx
+// Shows brief toast after a cleanup action. The persistent history is in CleanupHistory.
 import { useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 
@@ -11,12 +12,12 @@ function formatMB(bytes) {
 
 export default function UndoAlert({ action, onUndo, onDismiss, isUndoing }) {
   const [visible, setVisible] = useState(false);
-  const [countdown, setCountdown] = useState(10);
+  const [countdown, setCountdown] = useState(15);
 
   useEffect(() => {
     if (!action) return;
     setVisible(true);
-    setCountdown(10);
+    setCountdown(15);
 
     const timer = setInterval(() => {
       setCountdown(prev => {
@@ -40,10 +41,10 @@ export default function UndoAlert({ action, onUndo, onDismiss, isUndoing }) {
       <div className="bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-4">
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm">
-            ✓ {action.successCount?.toLocaleString()} emails moved to Trash
+            &#10003; {action.successCount?.toLocaleString()} emails moved to Trash
           </p>
           <p className="text-gray-400 text-xs mt-0.5">
-            Freed ~{formatMB(action.bytesFreed)} · Undoable for 30 days
+            Freed ~{formatMB(action.bytesFreed)} &middot; See <span className="text-gray-300 font-medium">Cleanup History</span> to undo anytime in 30 days
           </p>
         </div>
 
@@ -60,7 +61,7 @@ export default function UndoAlert({ action, onUndo, onDismiss, isUndoing }) {
               : 'bg-white text-gray-900 hover:bg-gray-100'
           )}
         >
-          {isUndoing ? 'Undoing…' : `Undo (${countdown}s)`}
+          {isUndoing ? 'Undoing\u2026' : `Undo (${countdown}s)`}
         </button>
       </div>
     </div>

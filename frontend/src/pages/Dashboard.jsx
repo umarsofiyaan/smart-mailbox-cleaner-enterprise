@@ -9,6 +9,8 @@ import CategoryCard from '../components/CategoryCard';
 import ConfirmModal from '../components/ConfirmModal';
 import UndoAlert from '../components/UndoAlert';
 import ProgressBar from '../components/ProgressBar';
+import CleanupHistory from '../components/CleanupHistory';
+import OnboardingGuide from '../components/OnboardingGuide';
 import { subscriptionApi } from '../api/client';
 
 function formatGB(bytes) {
@@ -19,7 +21,7 @@ function formatGB(bytes) {
 }
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, isNewUser, markOnboardingComplete } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { scan, status, error, startScan, loadLatestScan } = useScan();
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const [undoAction, setUndoAction] = useState(null);
   const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0); // increment to refresh history
   const profileMenuRef = useRef(null);
 
   const isPro = user?.subscription?.isPro;
@@ -74,6 +77,7 @@ export default function Dashboard() {
 
       setPendingCleanup(null);
       setUndoAction(result);
+      setHistoryKey(k => k + 1); // refresh history panel
 
     } catch (err) {
       setPendingCleanup(null);
@@ -85,6 +89,7 @@ export default function Dashboard() {
     try {
       await undoCleanup(actionId);
       setUndoAction(null);
+      setHistoryKey(k => k + 1);
       await loadLatestScan();
     } catch (err) {
       alert(err.message);
@@ -316,7 +321,23 @@ export default function Dashboard() {
             </button>
           </div>
         )}
+
+        {/* Cleanup History — always shown if there are past actions */}
+        <div className="mt-8">
+          <CleanupHistory
+            key={historyKey}
+            onUndoSuccess={() => {
+              setHistoryKey(k => k + 1);
+              loadLatestScan();
+            }}
+          />
+        </div>
       </main>
+
+      {/* Onboarding guide for new users */}
+      {isNewUser && (
+        <OnboardingGuide onComplete={markOnboardingComplete} />
+      )}
 
       {/* Modals */}
       <ConfirmModal

@@ -100,17 +100,18 @@ router.get('/google/callback', authLimiter, async (req, res) => {
       }
     }
 
-    // Upsert user
+    // Upsert user — track if this is a brand-new signup
     const userResult = await query(
       `INSERT INTO users (google_id, email, display_name, avatar_url)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (google_id) DO UPDATE
        SET email = $2, display_name = $3, avatar_url = $4, updated_at = NOW()
-       RETURNING id, email, display_name`,
+       RETURNING id, email, display_name, (xmax = 0) AS is_new_user`,
       [profile.id, profile.email, profile.name, profile.picture]
     );
 
     const user = userResult.rows[0];
+    const isNewUser = user.is_new_user === true || user.is_new_user === 'true';
 
     // Initialize subscription record if not exists
     await query(
@@ -138,7 +139,7 @@ router.get('/google/callback', authLimiter, async (req, res) => {
 
     // Web dashboard — redirect with tokens in URL fragment
     return res.redirect(
-      `${process.env.FRONTEND_URL}/dashboard?access_token=${accessToken}&refresh_token=${refreshToken}`
+      `${process.env.FRONTEND_URL}/dashboard?access_token=${accessToken}&refresh_token=${refreshToken}&new_user=${isNewUser}`
     );
 
   } catch (err) {
