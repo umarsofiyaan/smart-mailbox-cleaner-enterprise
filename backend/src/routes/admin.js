@@ -151,6 +151,42 @@ router.get('/users/:userId', async (req, res) => {
 });
 
 /**
+ * PATCH /admin/users/:userId/role
+ * Promote or demote a user's admin status.
+ * Body: { isAdmin: true | false }
+ */
+router.patch('/users/:userId/role', async (req, res) => {
+  const { userId } = req.params;
+  const { isAdmin } = req.body;
+
+  if (userId === req.user.id) {
+    return res.status(400).json({ error: 'You cannot change your own admin status.' });
+  }
+
+  if (typeof isAdmin !== 'boolean') {
+    return res.status(400).json({ error: 'isAdmin must be true or false.' });
+  }
+
+  try {
+    await query(
+      'UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2',
+      [isAdmin, userId]
+    );
+
+    logger.info('Admin: role updated', {
+      adminId: req.user.id,
+      targetUserId: userId,
+      isAdmin,
+    });
+
+    return res.json({ success: true, isAdmin });
+  } catch (err) {
+    logger.error('Admin: failed to update role', err, { userId });
+    return res.status(500).json({ error: 'Failed to update role.' });
+  }
+});
+
+/**
  * PATCH /admin/users/:userId/subscription
  * Manually set a user's subscription plan.
  * Body: { plan: 'pro' | 'free', status: 'active' | 'canceled' }

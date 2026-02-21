@@ -22,8 +22,7 @@ const logger = require('../utils/logger');
  */
 router.post(
   '/execute',
-  requireAuth,
-  requirePro,
+  requireAuth,         // ← requirePro removed: free users can now use quota
   cleanupLimiter,
   [
     body('scanId').isUUID().withMessage('Valid scanId required.'),
@@ -51,13 +50,17 @@ router.post(
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
     }
 
-    // Check free-tier quota (Pro users bypass)
+    // Check quota — Pro users get unlimited, free users capped
     const quotaCheck = await checkQuota(userId);
     if (!quotaCheck.allowed) {
-      return res.status(403).json({ error: quotaCheck.reason, code: 'QUOTA_EXHAUSTED' });
+      return res.status(403).json({
+        error: quotaCheck.reason,
+        code: 'QUOTA_EXHAUSTED',
+        upgradeUrl: `${process.env.FRONTEND_URL}/pricing`,
+      });
     }
 
-    // Cap cleanup count to quota available
+    // Cap to available quota (Infinity for Pro, remaining count for free)
     const effectiveMessageCount = Math.min(messageIds.length, quotaCheck.remaining);
     if (effectiveMessageCount < messageIds.length) {
       // Trim message IDs to match quota

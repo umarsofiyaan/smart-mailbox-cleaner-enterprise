@@ -74,7 +74,7 @@ function ReviewEmailRow({ msg }) {
   );
 }
 
-export default function CategoryCard({ category, onCleanup, isPro, isLoading }) {
+export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuota, quotaRemaining, isLoading }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const colors = COLOR_MAP[category.color] || COLOR_MAP.gray;
 
@@ -192,7 +192,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isLoading }) 
           </button>
         )}
 
-        {/* Action button */}
+        {/* Action button — Pro: unlimited | Free with quota: capped | Exhausted: offer upgrade | Neither: Pro required */}
         {isPro ? (
           <button
             onClick={() => onCleanup({
@@ -212,7 +212,45 @@ export default function CategoryCard({ category, onCleanup, isPro, isLoading }) 
           >
             {isLoading ? 'Moving to Trash\u2026' : `Move to Trash (${category.messageCount.toLocaleString()})`}
           </button>
+        ) : isFreeWithQuota && quotaRemaining > 0 ? (
+          // Free user with quota remaining
+          <div className="space-y-2">
+            <button
+              onClick={() => onCleanup({
+                category: category.key,
+                messageIds: allMessageIds.slice(0, quotaRemaining),
+                estimatedBytes: category.totalBytes,
+                label: category.label,
+                messageCount: Math.min(category.messageCount, quotaRemaining),
+              })}
+              disabled={isLoading || allMessageIds.length === 0}
+              className={clsx(
+                'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
+                allMessageIds.length > 0
+                  ? 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              )}
+            >
+              {isLoading
+                ? 'Moving to Trash\u2026'
+                : category.messageCount <= quotaRemaining
+                  ? `Move to Trash (${category.messageCount.toLocaleString()})`
+                  : `Move ${quotaRemaining.toLocaleString()} to Trash (quota limit)`}
+            </button>
+            {category.messageCount > quotaRemaining && (
+              <p className="text-xs text-center text-amber-600">
+                You have {quotaRemaining} free credits. {category.messageCount - quotaRemaining} emails need Pro.
+              </p>
+            )}
+          </div>
+        ) : isFreeWithQuota && quotaRemaining === 0 ? (
+          // Free user, quota exhausted
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center space-y-2">
+            <p className="text-xs text-amber-700 font-semibold">Free quota used up for today</p>
+            <p className="text-xs text-amber-600">Come back tomorrow for 50 more, or go Pro for unlimited.</p>
+          </div>
         ) : (
+          // Not pro, no quota info yet — show Pro required
           <div className="bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-100 rounded-xl p-3 text-center">
             <p className="text-xs text-gray-600">
               <span className="font-semibold text-brand-700">Pro required</span> to clean up

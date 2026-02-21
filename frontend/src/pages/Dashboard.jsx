@@ -12,7 +12,7 @@ import ProgressBar from '../components/ProgressBar';
 import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
-import { subscriptionApi } from '../api/client';
+import { subscriptionApi, cleanupApi } from '../api/client';
 
 function formatGB(bytes) {
   if (!bytes) return '0 MB';
@@ -32,7 +32,8 @@ export default function Dashboard() {
   const [undoAction, setUndoAction] = useState(null);
   const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [historyKey, setHistoryKey] = useState(0); // increment to refresh history
+  const [historyKey, setHistoryKey] = useState(0);
+  const [quota, setQuota] = useState(null); // free-tier quota info
   const profileMenuRef = useRef(null);
 
   const isPro = user?.subscription?.isPro;
@@ -51,15 +52,35 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
     loadLatestScan();
+    if (!isPro) loadQuota();
 
     if (searchParams.get('upgrade') === 'success') {
       setShowUpgradeBanner(true);
     }
   }, [user]);
 
+  async function loadQuota() {
+    try {
+      const res = await cleanupApi.getQuota();
+      // response shape: { quota: { lifetime, daily, ... } } or flat
+      const data = res.data?.quota || res.data;
+      setQuota(data);
+    } catch (err) {
+      console.error('Failed to load quota', err);
+    }
+  }
+
+  // Derive quota values
+  const quotaLifetimeRemaining = quota?.lifetime?.remaining ?? 0;
+  const quotaDailyRemaining = quota?.daily?.remaining ?? 0;
+  const quotaRemaining = quotaLifetimeRemaining > 0 ? quotaLifetimeRemaining : quotaDailyRemaining;
+  const isFreeWithQuota = !isPro && quotaRemaining > 0;
+
   function handleCleanupRequest(categoryData) {
-    if (!isPro) {
-      navigate('/pricing');
+    // Free users can clean up to their quota limit
+    if (!isPro && quotaRemaining <= 0) {
+      // Quota exhausted — scroll to quota banner instead of navigating away
+      document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
     setPendingCleanup(categoryData);
@@ -78,7 +99,8 @@ export default function Dashboard() {
 
       setPendingCleanup(null);
       setUndoAction(result);
-      setHistoryKey(k => k + 1); // refresh history panel
+      setHistoryKey(k => k + 1);
+      if (!isPro) loadQuota(); // refresh quota after cleanup
 
     } catch (err) {
       setPendingCleanup(null);
@@ -238,7 +260,9 @@ export default function Dashboard() {
         </div>
 
         {/* Quota banner for free users */}
-        <QuotaBanner isPro={isPro} />
+        <div id="quota-banner">
+          <QuotaBanner isPro={isPro} />
+        </div>
 
         {/* Results */}
         {scan && status === 'complete' && (
@@ -252,12 +276,12 @@ export default function Dashboard() {
                   <span>📧 {scan.progress?.messagesScanned?.toLocaleString()} emails scanned</span>
                   <span>📁 {categories.length} categories found</span>
                 </div>
-                {!isPro && (
+                {!isPro && quotaRemaining === 0 && quota && (
                   <button
                     onClick={() => navigate('/pricing')}
                     className="mt-4 bg-white text-brand-700 font-bold px-5 py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-sm"
                   >
-                    Upgrade to Pro to start cleaning →
+                    Upgrade to Pro for unlimited →
                   </button>
                 )}
               </div>
@@ -289,7 +313,12 @@ export default function Dashboard() {
               <div className="lg:col-span-2 space-y-4">
                 <h2 className="font-semibold text-gray-900 text-lg">
                   Suggested cleanups
-                  {!isPro && <span className="text-sm text-gray-400 font-normal ml-2">(Pro required to clean)</span>}
+                  {!isPro && quotaRemaining > 0 && (
+                    <span className="text-sm text-green-600 font-normal ml-2">({quotaRemaining} free credits available)</span>
+                  )}
+                  {!isPro && quotaRemaining === 0 && quota && (
+                    <span className="text-sm text-amber-500 font-normal ml-2">(free quota used — upgrade for more)</span>
+                  )}
                 </h2>
 
                 {categories.length === 0 ? (
@@ -304,6 +333,8 @@ export default function Dashboard() {
                       key={cat.key}
                       category={cat}
                       isPro={isPro}
+                      isFreeWithQuota={isFreeWithQuota}
+                      quotaRemaining={quotaRemaining}
                       isLoading={executing}
                       onCleanup={handleCleanupRequest}
                     />
