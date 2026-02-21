@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { api } from '../api/client';
+import api from '../api/client';
 
 export default function Admin() {
   const { user, logout } = useAuth();
