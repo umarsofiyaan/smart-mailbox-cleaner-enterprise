@@ -122,6 +122,27 @@ CREATE TABLE IF NOT EXISTS message_original_labels (
 -- Track whether a user has seen the onboarding guide
 ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
 
+-- Admin flag on users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+
+-- Email deletion quota tracking (free tier enforcement)
+CREATE TABLE IF NOT EXISTS user_quota (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  -- Lifetime free allowance (500 emails total, shared across all-time use)
+  lifetime_allowance INTEGER NOT NULL DEFAULT 500,
+  lifetime_used INTEGER NOT NULL DEFAULT 0,
+  -- Daily free quota (50 emails/day on login, resets at midnight UTC)
+  daily_allowance INTEGER NOT NULL DEFAULT 50,
+  daily_used INTEGER NOT NULL DEFAULT 0,
+  daily_quota_granted_at TIMESTAMPTZ,   -- when today's 50 were granted (on login)
+  daily_reset_at TIMESTAMPTZ,           -- next midnight UTC reset time
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_quota_user_id ON user_quota(user_id);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_message_labels_action_id ON message_original_labels(action_id);
 CREATE INDEX IF NOT EXISTS idx_message_labels_message_id ON message_original_labels(message_id);

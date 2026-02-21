@@ -8,6 +8,7 @@ const { requirePro } = require('../middleware/requirePro');
 const { cleanupLimiter } = require('../middleware/security');
 const { getOAuthTokens } = require('../services/tokenService');
 const { executeCleanup, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
+const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
 
@@ -15,6 +16,7 @@ const logger = require('../utils/logger');
  * POST /cleanup/execute
  * Execute bulk cleanup for a category (Pro only).
  * Moves emails to Trash — NEVER permanent delete.
+ * Enforces free-tier quota for non-Pro users.
  * 
  * Body: { scanId, category, messageIds, estimatedBytes }
  */
@@ -49,9 +51,25 @@ router.post(
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
     }
 
+    // Check free-tier quota (Pro users bypass)
+    const quotaCheck = await checkQuota(userId);
+    if (!quotaCheck.allowed) {
+      return res.status(403).json({ error: quotaCheck.reason, code: 'QUOTA_EXHAUSTED' });
+    }
+
+    // Cap cleanup count to quota available
+    const effectiveMessageCount = Math.min(messageIds.length, quotaCheck.remaining);
+    if (effectiveMessageCount < messageIds.length) {
+      // Trim message IDs to match quota
+      messageIds.length = effectiveMessageCount;
+    }
+
     try {
       const tokens = await getOAuthTokens(userId);
       const result = await executeCleanup(userId, scanId, category, messageIds, estimatedBytes, tokens);
+
+      // Consume quota after successful cleanup
+      await consumeQuota(userId, result.successCount);
 
       return res.json({
         success: true,
@@ -62,6 +80,7 @@ router.post(
         bytesFreedMB: parseFloat((result.bytesFreed / (1024 * 1024)).toFixed(2)),
         undoExpiresAt: result.undoExpiresAt,
         message: `${result.successCount} emails moved to Trash. You have 30 days to undo this action.`,
+        quotaRemaining: quotaCheck.remaining - result.successCount,
       });
 
     } catch (err) {
@@ -154,6 +173,20 @@ router.get('/action/:actionId', requireAuth, async (req, res) => {
     expiresAt: action.expires_at,
     canUndo: action.status === 'complete' && new Date(action.expires_at) > new Date(),
   });
+});
+
+/**
+ * GET /cleanup/quota
+ * Return current user's quota summary (for QuotaBanner component).
+ */
+router.get('/quota', requireAuth, async (req, res) => {
+  try {
+    const quota = await getQuotaSummary(req.user.id);
+    return res.json({ quota });
+  } catch (err) {
+    logger.error('Failed to fetch quota', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to fetch quota.' });
+  }
 });
 
 module.exports = router;

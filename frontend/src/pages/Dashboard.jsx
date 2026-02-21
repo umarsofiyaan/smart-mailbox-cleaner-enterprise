@@ -11,6 +11,7 @@ import UndoAlert from '../components/UndoAlert';
 import ProgressBar from '../components/ProgressBar';
 import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
+import QuotaBanner from '../components/QuotaBanner';
 import { subscriptionApi } from '../api/client';
 
 function formatGB(bytes) {
@@ -147,6 +148,9 @@ export default function Dashboard() {
                     <p className="font-medium text-sm text-gray-900 truncate">{user?.displayName}</p>
                     <p className="text-xs text-gray-400 truncate">{user?.email}</p>
                   </div>
+                  <button onClick={() => { navigate('/admin'); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                    Admin Dashboard
+                  </button>
                   {isPro && (
                     <button onClick={() => { handleManageSubscription(); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
                       Manage subscription
@@ -230,6 +234,9 @@ export default function Dashboard() {
         <div className="mb-6">
           <ProgressBar status={status} messagesScanned={scan?.progress?.messagesScanned} />
         </div>
+
+        {/* Quota banner for free users */}
+        <QuotaBanner isPro={isPro} />
 
         {/* Results */}
         {scan && status === 'complete' && (

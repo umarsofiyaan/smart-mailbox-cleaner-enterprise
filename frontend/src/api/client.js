@@ -115,6 +115,7 @@ export const cleanupApi = {
   execute: (payload) => api.post('/cleanup/execute', payload),
   undo: (actionId) => api.post(`/cleanup/undo/${actionId}`),
   getHistory: () => api.get('/cleanup/history'),
+  getQuota: () => api.get('/cleanup/quota'),
 };
 
 export const subscriptionApi = {

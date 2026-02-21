@@ -18,6 +18,7 @@ const {
   revokeAllTokens,
   deleteUserTokens,
 } = require('../services/tokenService');
+const { grantDailyQuotaOnLogin } = require('../services/quotaService');
 const { authLimiter } = require('../middleware/security');
 const logger = require('../utils/logger');
 
@@ -124,6 +125,9 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     // Store encrypted OAuth tokens
     await storeOAuthTokens(user.id, tokens);
 
+    // Grant daily quota on login (free-tier quota system)
+    await grantDailyQuotaOnLogin(user.id);
+
     // Issue JWT pair
     const accessToken = generateAccessToken(user.id, user.email);
     const refreshToken = generateRefreshToken(user.id);
@@ -169,6 +173,9 @@ router.post('/refresh', authLimiter, async (req, res) => {
     }
 
     const { accessToken, refreshToken: newRefreshToken, user } = await rotateRefreshToken(refreshToken);
+
+    // Grant daily quota on token refresh (ensures free-tier quota is available each day)
+    await grantDailyQuotaOnLogin(user.id);
 
     // Set new cookies for web dashboard
     res.cookie('access_token', accessToken, COOKIE_OPTIONS);
