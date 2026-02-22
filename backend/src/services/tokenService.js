@@ -1,15 +1,20 @@
 // src/services/tokenService.js
-// Manages OAuth token storage with AES encryption + refresh rotation
-const { query } = require('../config/database');
+// Manages OAuth token storage (AES encrypted) and JWT refresh token rotation.
+//
+// Multi-device support: each device gets its own row in refresh_tokens.
+// Device A refreshing does NOT invalidate Device B's token.
+//
+// FIX: rotateRefreshToken now checks deleted_at IS NULL — deleted users
+// cannot refresh their session even if they have a valid refresh token.
+
+const { query }   = require('../config/database');
 const { encrypt, decrypt, hashToken } = require('../utils/encryption');
-const { createAuthenticatedClient } = require('../config/google');
+const { createAuthenticatedClient }   = require('../config/google');
 const { generateAccessToken, generateRefreshToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
-/**
- * Store OAuth tokens for a user.
- * Refresh token is AES-256 encrypted before storage.
- */
+// ─── OAuth tokens (Google) ─────────────────────────────────────────────────
+
 async function storeOAuthTokens(userId, tokens) {
   const encryptedRefresh = encrypt(tokens.refresh_token);
   const tokenExpiry = new Date(tokens.expiry_date || Date.now() + 3600 * 1000);
@@ -33,10 +38,6 @@ async function storeOAuthTokens(userId, tokens) {
   );
 }
 
-/**
- * Retrieve and decrypt OAuth tokens for a user.
- * Automatically refreshes if access token is expired.
- */
 async function getOAuthTokens(userId) {
   const result = await query(
     `SELECT access_token, refresh_token, token_expiry
@@ -48,14 +49,13 @@ async function getOAuthTokens(userId) {
     throw new Error('No OAuth tokens found for user. Please reconnect your Gmail account.');
   }
 
-  const row = result.rows[0];
-  let accessToken = decrypt(row.access_token);
+  const row          = result.rows[0];
+  let   accessToken  = decrypt(row.access_token);
   const refreshToken = decrypt(row.refresh_token);
-  const expiry = new Date(row.token_expiry);
+  const expiry       = new Date(row.token_expiry);
 
-  // Refresh if expired or expiring within 5 minutes
-  const fiveMinutes = 5 * 60 * 1000;
-  if (expiry.getTime() - Date.now() < fiveMinutes) {
+  // Refresh if expiring within 5 minutes
+  if (expiry.getTime() - Date.now() < 5 * 60 * 1000) {
     logger.info('Access token expiring, refreshing...', { userId });
     const newTokens = await refreshAccessToken(userId, refreshToken);
     accessToken = newTokens.access_token;
@@ -64,12 +64,8 @@ async function getOAuthTokens(userId) {
   return { accessToken, refreshToken };
 }
 
-/**
- * Refresh an access token using the stored refresh token.
- */
 async function refreshAccessToken(userId, refreshToken) {
   const client = createAuthenticatedClient('', refreshToken);
-
   let newTokens;
   try {
     const { credentials } = await client.refreshAccessToken();
@@ -79,23 +75,25 @@ async function refreshAccessToken(userId, refreshToken) {
     throw new Error('Gmail token refresh failed. Please reconnect your account.');
   }
 
-  // If Google rotated the refresh token, store the new one
   const tokenToStore = {
-    access_token: newTokens.access_token,
+    access_token:  newTokens.access_token,
     refresh_token: newTokens.refresh_token || refreshToken,
-    expiry_date: newTokens.expiry_date,
-    scope: newTokens.scope,
+    expiry_date:   newTokens.expiry_date,
+    scope:         newTokens.scope,
   };
 
   await storeOAuthTokens(userId, tokenToStore);
   return newTokens;
 }
 
+// ─── JWT refresh tokens ────────────────────────────────────────────────────
+
 /**
- * Store a JWT refresh token hash in the DB for rotation tracking.
+ * Store a new refresh token hash.
+ * Each device/session gets its own row — multi-device is supported natively.
  */
 async function storeRefreshTokenHash(userId, refreshToken) {
-  const hash = hashToken(refreshToken);
+  const hash      = hashToken(refreshToken);
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   await query(
@@ -103,46 +101,79 @@ async function storeRefreshTokenHash(userId, refreshToken) {
      VALUES ($1, $2, $3)`,
     [userId, hash, expiresAt]
   );
+
+  // Clean up old expired/revoked tokens for this user (housekeeping)
+  await query(
+    `DELETE FROM refresh_tokens
+     WHERE user_id = $1
+       AND (is_revoked = TRUE OR expires_at < NOW() - INTERVAL '1 day')`,
+    [userId]
+  );
 }
 
 /**
  * Validate and rotate a JWT refresh token.
- * Returns new access + refresh token pair.
+ * Issues a new access + refresh token pair.
+ *
+ * FIX: Now checks that user is not soft-deleted before issuing new tokens.
+ * Multi-device: only THIS device's token is rotated; other devices unaffected.
  */
 async function rotateRefreshToken(refreshToken) {
   const hash = hashToken(refreshToken);
 
   const result = await query(
-    `SELECT id, user_id, is_revoked, expires_at
-     FROM refresh_tokens WHERE token_hash = $1`,
+    `SELECT rt.id, rt.user_id, rt.is_revoked, rt.expires_at
+     FROM refresh_tokens rt
+     JOIN users u ON u.id = rt.user_id
+     WHERE rt.token_hash = $1
+       AND u.deleted_at IS NULL`,   -- ← FIX: reject tokens for deleted users
     [hash]
   );
 
+  // Check without deleted_at to give a better error message
   if (result.rows.length === 0) {
-    throw new Error('Refresh token not found.');
+    const anyResult = await query(
+      `SELECT rt.user_id, u.deleted_at
+       FROM refresh_tokens rt
+       JOIN users u ON u.id = rt.user_id
+       WHERE rt.token_hash = $1`,
+      [hash]
+    );
+    if (anyResult.rows[0]?.deleted_at) {
+      throw new Error('Account has been deactivated. Please contact support.');
+    }
+    throw new Error('Session not found. Please log in again.');
   }
 
   const stored = result.rows[0];
 
   if (stored.is_revoked) {
-    // Token reuse detected — revoke all tokens for this user (security)
+    // Token reuse detected — revoke ALL tokens for this user (security measure)
     await query('UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1', [stored.user_id]);
-    throw new Error('Refresh token reuse detected. All sessions revoked.');
+    throw new Error('Session conflict detected. Please log in again on all devices.');
   }
 
   if (new Date(stored.expires_at) < new Date()) {
-    throw new Error('Refresh token expired. Please log in again.');
+    throw new Error('Session expired. Please log in again.');
   }
 
-  // Revoke used token
+  // Revoke the used token (rotation — prevents replay attacks)
   await query('UPDATE refresh_tokens SET is_revoked = TRUE WHERE id = $1', [stored.id]);
 
-  // Get user info
-  const userResult = await query('SELECT id, email FROM users WHERE id = $1', [stored.user_id]);
+  // Get fresh user data
+  const userResult = await query(
+    `SELECT id, email FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [stored.user_id]
+  );
+
+  if (userResult.rows.length === 0) {
+    throw new Error('Account has been deactivated. Please contact support.');
+  }
+
   const user = userResult.rows[0];
 
-  // Issue new pair
-  const newAccessToken = generateAccessToken(user.id, user.email);
+  // Issue new pair for THIS device only
+  const newAccessToken  = generateAccessToken(user.id, user.email);
   const newRefreshToken = generateRefreshToken(user.id);
   await storeRefreshTokenHash(user.id, newRefreshToken);
 
@@ -150,18 +181,19 @@ async function rotateRefreshToken(refreshToken) {
 }
 
 /**
- * Revoke all refresh tokens for a user (logout)
+ * Revoke ALL sessions for a user.
+ * Called by: admin delete, logout, security events.
  */
 async function revokeAllTokens(userId) {
   await query('UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1', [userId]);
 }
 
 /**
- * Delete all OAuth data for a user (GDPR)
+ * Delete all OAuth data for a user (GDPR self-delete).
  */
 async function deleteUserTokens(userId) {
-  await query('DELETE FROM oauth_tokens WHERE user_id = $1', [userId]);
-  await query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+  await query('DELETE FROM oauth_tokens    WHERE user_id = $1', [userId]);
+  await query('DELETE FROM refresh_tokens  WHERE user_id = $1', [userId]);
 }
 
 module.exports = {

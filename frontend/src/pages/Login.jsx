@@ -6,12 +6,12 @@ import { useAuth } from '../hooks/useAuth.jsx';
 
 export default function Login() {
   const { user, loading } = useAuth();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const navigate          = useNavigate();
+  const [searchParams]    = useSearchParams();
   const [isConnecting, setIsConnecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const errorParam = searchParams.get('error');
+  const errorParam    = searchParams.get('error');
   const sessionExpired = searchParams.get('session_expired');
 
   useEffect(() => {
@@ -21,15 +21,15 @@ export default function Login() {
   useEffect(() => {
     if (errorParam === 'oauth_denied')        setErrorMessage('Google sign-in was cancelled.');
     else if (errorParam === 'auth_failed')    setErrorMessage('Authentication failed. Please try again.');
-    else if (errorParam === 'no_refresh_token') setErrorMessage('Please revoke access in Google settings and try again.');
+    else if (errorParam === 'no_refresh_token') setErrorMessage('Please revoke app access in Google settings and try again.');
     else if (sessionExpired)                  setErrorMessage('Your session expired. Please sign in again.');
   }, [errorParam, sessionExpired]);
 
-  async function handleGoogleLogin() {
+  async function handleGoogleLogin(forceConsent = false) {
     setIsConnecting(true);
     setErrorMessage('');
     try {
-      const response = await authApi.getGoogleAuthUrl();
+      const response = await authApi.getGoogleAuthUrl(forceConsent);
       window.location.href = response.data.url;
     } catch {
       setErrorMessage('Failed to connect to Google. Please try again.');
@@ -45,13 +45,15 @@ export default function Login() {
     );
   }
 
+  // Show a specific UI when the error is about revoking access
+  const showRevokeHelp = errorParam === 'no_refresh_token';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
 
-        {/* Logo + title */}
+        {/* Logo */}
         <div className="text-center mb-8">
-          {/* Real PNG logo icon */}
           <img
             src="/icon-120.png"
             alt="Smart Mailbox Cleaner"
@@ -63,14 +65,47 @@ export default function Login() {
 
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-          {errorMessage && (
+
+          {/* Error message */}
+          {errorMessage && !showRevokeHelp && (
             <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-6">
               <p className="text-sm text-red-700">{errorMessage}</p>
             </div>
           )}
 
+          {/* Special help panel for no_refresh_token */}
+          {showRevokeHelp && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 mb-6">
+              <p className="text-sm font-semibold text-amber-900 mb-2">⚠️ One more step needed</p>
+              <p className="text-sm text-amber-800 mb-3">
+                Google didn't send a login token. This happens when you previously connected this app.
+                To fix it, click the button below — it will ask Google to grant fresh access.
+              </p>
+              <button
+                onClick={() => handleGoogleLogin(true)}
+                disabled={isConnecting}
+                className="w-full text-sm bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors disabled:opacity-60"
+              >
+                {isConnecting ? 'Redirecting…' : 'Re-authorize with Google →'}
+              </button>
+              <p className="text-xs text-amber-700 mt-2 text-center">
+                Or go to{' '}
+                <a
+                  href="https://myaccount.google.com/permissions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline font-medium"
+                >
+                  Google Account Permissions
+                </a>
+                , revoke Smart Mailbox Cleaner, then sign in again below.
+              </p>
+            </div>
+          )}
+
+          {/* Main sign-in button */}
           <button
-            onClick={handleGoogleLogin}
+            onClick={() => handleGoogleLogin(false)}
             disabled={isConnecting}
             className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-700 font-semibold py-4 px-6 rounded-xl transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
           >
@@ -94,19 +129,19 @@ export default function Login() {
               { icon: '🗑️', text: 'Emails moved to Trash, never deleted permanently' },
               { icon: '↩️', text: 'Undo any cleanup within 30 days' },
               { icon: '📊', text: 'See exactly how much space you can free' },
-            ].map((feature, i) => (
+            ].map((f, i) => (
               <div key={i} className="flex items-center gap-3">
-                <span className="text-lg">{feature.icon}</span>
-                <p className="text-sm text-gray-600">{feature.text}</p>
+                <span className="text-lg">{f.icon}</span>
+                <p className="text-sm text-gray-600">{f.text}</p>
               </div>
             ))}
           </div>
 
           <p className="text-xs text-gray-400 text-center mt-6">
             By continuing, you agree to our{' '}
-            <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>
+            <a href="/privacy.html" className="underline hover:text-gray-600">Privacy Policy</a>
             {' '}and{' '}
-            <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>.
+            <a href="/terms.html" className="underline hover:text-gray-600">Terms of Service</a>.
           </p>
         </div>
       </div>

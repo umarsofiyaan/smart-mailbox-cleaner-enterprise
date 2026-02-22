@@ -1,23 +1,25 @@
 // src/middleware/auth.js
-const jwt = require('jsonwebtoken');
+const jwt  = require('jsonwebtoken');
 const { query } = require('../config/database');
 
 /**
  * Verify JWT access token from Authorization header or HttpOnly cookie.
- * Attaches req.user = { id, email, googleId }
+ * Attaches req.user = { id, email, googleId, displayName }
+ *
+ * FIX: Now checks deleted_at IS NULL — soft-deleted users are immediately rejected.
  */
 async function requireAuth(req, res, next) {
   try {
     let token = null;
 
-    // 1. Try Authorization: Bearer header (extension, API clients)
+    // 1. Authorization: Bearer header (extension, API clients)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7);
     }
 
-    // 2. Try HttpOnly cookie (web dashboard)
-    if (!token && req.cookies && req.cookies.access_token) {
+    // 2. HttpOnly cookie (web dashboard)
+    if (!token && req.cookies?.access_token) {
       token = req.cookies.access_token;
     }
 
@@ -25,7 +27,7 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    // Verify signature and expiry
+    // Verify JWT signature and expiry
     let payload;
     try {
       payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
@@ -36,20 +38,27 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: 'Invalid access token.' });
     }
 
-    // Confirm user still exists
+    // ── FIX: also check deleted_at IS NULL ───────────────────────────────
+    // Without this, soft-deleted users pass auth indefinitely until token expires.
     const result = await query(
-      'SELECT id, email, google_id, display_name FROM users WHERE id = $1',
+      `SELECT id, email, google_id, display_name
+       FROM users
+       WHERE id = $1 AND deleted_at IS NULL`,
       [payload.userId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found.' });
+      // User not found OR soft-deleted — treat both as session invalidated
+      return res.status(401).json({
+        error: 'Account not found or has been deactivated.',
+        code: 'ACCOUNT_DELETED',
+      });
     }
 
     req.user = {
-      id: result.rows[0].id,
-      email: result.rows[0].email,
-      googleId: result.rows[0].google_id,
+      id:          result.rows[0].id,
+      email:       result.rows[0].email,
+      googleId:    result.rows[0].google_id,
       displayName: result.rows[0].display_name,
     };
 
@@ -83,7 +92,7 @@ function generateRefreshToken(userId) {
 }
 
 /**
- * Verify a refresh token
+ * Verify a refresh token's signature
  */
 function verifyRefreshToken(token) {
   return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
