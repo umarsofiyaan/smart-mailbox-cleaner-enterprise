@@ -15,22 +15,19 @@ export default function Login() {
   const sessionExpired = searchParams.get('session_expired');
 
   useEffect(() => {
-    if (!loading && user) {
-      navigate('/dashboard');
-    }
+    if (!loading && user) navigate('/dashboard');
   }, [user, loading, navigate]);
 
   useEffect(() => {
-    if (errorParam === 'oauth_denied') setErrorMessage('Google sign-in was cancelled.');
-    else if (errorParam === 'auth_failed') setErrorMessage('Authentication failed. Please try again.');
+    if (errorParam === 'oauth_denied')        setErrorMessage('Google sign-in was cancelled.');
+    else if (errorParam === 'auth_failed')    setErrorMessage('Authentication failed. Please try again.');
     else if (errorParam === 'no_refresh_token') setErrorMessage('Please revoke access in Google settings and try again.');
-    else if (sessionExpired) setErrorMessage('Your session expired. Please sign in again.');
+    else if (sessionExpired)                  setErrorMessage('Your session expired. Please sign in again.');
   }, [errorParam, sessionExpired]);
 
   async function handleGoogleLogin() {
     setIsConnecting(true);
     setErrorMessage('');
-
     try {
       const response = await authApi.getGoogleAuthUrl();
       window.location.href = response.data.url;
@@ -42,20 +39,24 @@ export default function Login() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-brand-50 to-white flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
+
+        {/* Logo + title */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <span className="text-3xl">📬</span>
-          </div>
+          {/* Real PNG logo icon */}
+          <img
+            src="/icon-120.png"
+            alt="Smart Mailbox Cleaner"
+            className="w-20 h-20 mx-auto mb-4 rounded-2xl shadow-lg"
+          />
           <h1 className="text-3xl font-bold text-gray-900">Smart Mailbox Cleaner</h1>
           <p className="text-gray-500 mt-2">Free up Gmail storage — safely, in minutes</p>
         </div>
@@ -71,10 +72,10 @@ export default function Login() {
           <button
             onClick={handleGoogleLogin}
             disabled={isConnecting}
-            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 hover:border-brand-300 hover:bg-brand-50 text-gray-700 font-semibold py-4 px-6 rounded-xl transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-700 font-semibold py-4 px-6 rounded-xl transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
           >
             {isConnecting ? (
-              <div className="w-5 h-5 border-2 border-gray-300 border-t-brand-600 rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
             ) : (
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
