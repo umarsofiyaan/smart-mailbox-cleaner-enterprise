@@ -179,6 +179,38 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   CREATE TRIGGER update_subscription_updated_at BEFORE UPDATE ON subscription_status FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================
+-- Batch 3 (Change 4.0) Migrations
+-- Admin audit log + soft-delete + email notification flags
+-- ============================================================
+
+-- 1. Admin audit log table
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  admin_email    VARCHAR(255),
+  target_user_id UUID,
+  target_email   VARCHAR(255),
+  action         VARCHAR(100) NOT NULL,
+  detail         JSONB DEFAULT '{}',
+  ip_address     VARCHAR(45),
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_admin_id       ON admin_audit_log(admin_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_user_id ON admin_audit_log(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at     ON admin_audit_log(created_at DESC);
+
+-- 2. Soft-delete columns on users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at  TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by  UUID        DEFAULT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at) WHERE deleted_at IS NOT NULL;
+
+-- 3. Email notification flags on user_quota
+ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_warning_sent   BOOLEAN DEFAULT FALSE;
+ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_exhausted_sent BOOLEAN DEFAULT FALSE;
 `;
 
 async function migrate() {
