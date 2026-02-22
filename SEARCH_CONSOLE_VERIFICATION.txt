@@ -1,0 +1,61 @@
+# ================================================================
+# GOOGLE SEARCH CONSOLE — Domain Verification
+# Fixes: "website not registered to you" error
+# ================================================================
+
+## WHAT THIS IS
+Google requires you to prove you own the domain before approving
+your OAuth app. You do this via Google Search Console.
+
+## STEPS
+
+### Step 1 — Open Search Console
+Go to: https://search.google.com/search-console/
+Sign in with your Google account (umarsofiyaan@gmail.com)
+
+### Step 2 — Add property
+Click "+ Add property" (top left dropdown)
+Choose "URL prefix" and enter: https://smart-mailbox-cleaner.umarsofiyaan.shop
+Click Continue
+
+### Step 3 — Verify via HTML file (easiest method)
+Google will give you a file named like:
+  google1a2b3c4d5e6f7g.html
+
+Download it.
+
+Upload it to your Cloudflare Pages repo at:
+  frontend/public/google1a2b3c4d5e6f7g.html
+  (exact filename Google gave you)
+
+Push to GitHub → wait for Cloudflare to deploy (~1 min)
+
+Test it works: https://smart-mailbox-cleaner.umarsofiyaan.shop/google1a2b3c4d5e6f7g.html
+Should show the file content (not 404)
+
+Click "Verify" in Search Console.
+
+### Alternative: DNS TXT record (if HTML method fails)
+Search Console will show you a TXT record like:
+  google-site-verification=abc123xyz
+
+Go to Cloudflare dashboard → DNS → Add record:
+  Type: TXT
+  Name: @ (or smart-mailbox-cleaner)
+  Content: google-site-verification=abc123xyz
+  TTL: Auto
+
+Wait 5-10 min → Click Verify in Search Console.
+
+## AFTER VERIFICATION
+Go back to Google Cloud Console → OAuth consent screen → Branding
+Click "Proceed" on the verification issues dialog
+Select "I have fixed the issues" → Proceed
+
+The "website not registered to you" error will be cleared.
+
+## NOTES
+- You only need to verify once
+- Verification persists unless you change DNS providers
+- The HTML file approach is instant once deployed
+================================================================
