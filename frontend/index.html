@@ -2,32 +2,241 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Mailbox Cleaner — Free up Gmail storage safely</title>
+    <meta name="description" content="Smart Mailbox Cleaner scans your Gmail metadata to find large attachments, old promotions, and social clutter. Clean your inbox safely in one click. Undo within 30 days. We never read your email content." />
 
-    <!-- ── Favicons ─────────────────────────────────────────── -->
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon"  href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="120x120" href="/icon-120.png" />
-    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
-
-    <!-- ── PWA Manifest ──────────────────────────────────────── -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#2c70a6" />
 
-    <!-- ── SEO ───────────────────────────────────────────────── -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Smart Mailbox Cleaner — Free up Gmail storage safely</title>
-    <meta name="description" content="Scan your Gmail, find what's wasting space, and clean it safely in one click. Undo within 30 days. Never reads email content." />
-
-    <!-- ── Open Graph / Social ───────────────────────────────── -->
-    <meta property="og:title" content="Smart Mailbox Cleaner" />
+    <!-- Open Graph -->
+    <meta property="og:title"       content="Smart Mailbox Cleaner" />
     <meta property="og:description" content="Free up Gmail storage safely in minutes. Large attachments, old promos, social clutter — found and cleaned without ever reading your email." />
-    <meta property="og:image" content="/icon-512.png" />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image"       content="/icon-512.png" />
+    <meta property="og:type"        content="website" />
+
+    <!-- ── Inline styles for the static shell (shown before React loads) ── -->
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #111; }
+      a { color: #2563eb; }
+
+      /* Static landing page — visible to Google crawler and users before JS loads */
+      #static-shell { min-height: 100vh; }
+      #static-shell nav {
+        border-bottom: 1px solid #f0f0f0; padding: 16px 24px;
+        display: flex; align-items: center; justify-content: space-between;
+        max-width: 1000px; margin: 0 auto;
+      }
+      #static-shell nav .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; color: #111; text-decoration: none; }
+      #static-shell nav .logo img { width: 32px; height: 32px; border-radius: 8px; }
+      #static-shell nav .nav-links { display: flex; align-items: center; gap: 24px; }
+      #static-shell nav .nav-links a { font-size: 14px; color: #555; text-decoration: none; }
+      #static-shell nav .nav-links a:hover { color: #111; }
+      #static-shell nav .cta-btn {
+        background: #2563eb; color: #fff; font-weight: 600; font-size: 14px;
+        padding: 8px 16px; border-radius: 8px; text-decoration: none;
+        border: none; cursor: pointer;
+      }
+
+      #static-shell .hero {
+        max-width: 1000px; margin: 0 auto; padding: 80px 24px 60px;
+        text-align: center;
+      }
+      #static-shell .hero h1 { font-size: 48px; font-weight: 800; line-height: 1.15; color: #0f172a; margin-bottom: 20px; }
+      #static-shell .hero h1 span { color: #2563eb; }
+      #static-shell .hero p { font-size: 20px; color: #475569; max-width: 640px; margin: 0 auto 36px; line-height: 1.6; }
+      #static-shell .hero .cta-big {
+        display: inline-block; background: #2563eb; color: #fff;
+        font-weight: 700; font-size: 17px; padding: 16px 32px;
+        border-radius: 12px; text-decoration: none;
+        box-shadow: 0 4px 20px rgba(37,99,235,0.3);
+      }
+      #static-shell .hero .sub { font-size: 13px; color: #94a3b8; margin-top: 12px; }
+
+      #static-shell .features {
+        background: #f8fafc; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;
+        padding: 40px 24px;
+      }
+      #static-shell .features-inner { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(4,1fr); gap: 32px; }
+      @media (max-width: 700px) { #static-shell .features-inner { grid-template-columns: 1fr 1fr; } }
+      #static-shell .feature-item { }
+      #static-shell .feature-item .icon { font-size: 26px; margin-bottom: 8px; }
+      #static-shell .feature-item h3 { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+      #static-shell .feature-item p { font-size: 13px; color: #64748b; line-height: 1.5; }
+
+      #static-shell .how-it-works { max-width: 1000px; margin: 0 auto; padding: 60px 24px; }
+      #static-shell .how-it-works h2 { font-size: 30px; font-weight: 700; color: #0f172a; text-align: center; margin-bottom: 40px; }
+      #static-shell .steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 32px; }
+      @media (max-width: 700px) { #static-shell .steps { grid-template-columns: 1fr; } }
+      #static-shell .step .num { width: 34px; height: 34px; background: #dbeafe; color: #2563eb; font-weight: 700; font-size: 14px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+      #static-shell .step h3 { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+      #static-shell .step p { font-size: 14px; color: #64748b; line-height: 1.6; }
+
+      #static-shell .permissions { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 16px; max-width: 1000px; margin: 0 auto 60px; padding: 32px; }
+      #static-shell .permissions h2 { font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+      #static-shell .permissions > p { font-size: 14px; color: #475569; margin-bottom: 20px; }
+      #static-shell .perm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+      @media (max-width: 700px) { #static-shell .perm-grid { grid-template-columns: 1fr; } }
+      #static-shell .perm-card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #bfdbfe; }
+      #static-shell .perm-card code { font-size: 12px; font-family: monospace; background: #eff6ff; color: #1d4ed8; padding: 2px 6px; border-radius: 4px; display: block; margin-bottom: 8px; }
+      #static-shell .perm-card p { font-size: 13px; color: #475569; line-height: 1.5; }
+      #static-shell .perm-note { font-size: 12px; color: #64748b; margin-top: 14px; }
+
+      /* PRIVACY LINK — prominently visible */
+      #static-shell footer {
+        border-top: 1px solid #e2e8f0; padding: 28px 24px;
+        display: flex; align-items: center; justify-content: space-between;
+        max-width: 1000px; margin: 0 auto;
+        flex-wrap: wrap; gap: 12px;
+      }
+      #static-shell footer .logo-sm { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: #0f172a; }
+      #static-shell footer .logo-sm img { width: 24px; height: 24px; border-radius: 6px; }
+      #static-shell footer .footer-links { display: flex; gap: 24px; }
+      #static-shell footer .footer-links a { font-size: 14px; color: #64748b; text-decoration: none; font-weight: 500; }
+      #static-shell footer .footer-links a:hover { color: #0f172a; }
+      #static-shell footer .copy { font-size: 12px; color: #94a3b8; }
+
+      /* Hide static shell once React mounts */
+      #root:not(:empty) + #static-shell,
+      #root:not(:empty) ~ #static-shell { display: none !important; }
+    </style>
   </head>
   <body>
+    <!-- React mounts here — once mounted it takes over the page -->
     <div id="root"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         STATIC SHELL — visible to Google crawler + users before JS loads
+         Google's verification bot reads this directly from the HTML source.
+         This is hidden by CSS once React (#root) renders.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="static-shell" aria-hidden="false">
+
+      <!-- Nav with Privacy Policy link -->
+      <nav>
+        <a href="/" class="logo">
+          <img src="/icon-72.png" alt="Smart Mailbox Cleaner logo" />
+          Smart Mailbox Cleaner
+        </a>
+        <div class="nav-links">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="/login" class="cta-btn">Sign in</a>
+        </div>
+      </nav>
+
+      <!-- Hero — explains the app's purpose -->
+      <div class="hero">
+        <h1>Free up Gmail storage<br/><span>safely, in minutes</span></h1>
+        <p>
+          Smart Mailbox Cleaner scans your Gmail metadata to find large attachments,
+          old promotions, and social notifications wasting storage — then lets you
+          clean everything in one click. We <strong>never read your email content</strong>.
+        </p>
+        <a href="/login" class="cta-big">Get started free with Google</a>
+        <p class="sub">500 free cleanup credits · Undo any action within 30 days · No credit card</p>
+      </div>
+
+      <!-- Trust features -->
+      <div class="features">
+        <div class="features-inner">
+          <div class="feature-item">
+            <div class="icon">🔒</div>
+            <h3>Never reads email content</h3>
+            <p>We only access metadata — message size, labels, and dates. Email bodies are never read or stored.</p>
+          </div>
+          <div class="feature-item">
+            <div class="icon">🗑️</div>
+            <h3>Trash, not delete</h3>
+            <p>Emails are moved to Gmail Trash. Gmail purges Trash after 30 days — nothing is immediately destroyed.</p>
+          </div>
+          <div class="feature-item">
+            <div class="icon">↩️</div>
+            <h3>30-day undo</h3>
+            <p>Restore any cleanup action from your dashboard at any time within the 30-day window.</p>
+          </div>
+          <div class="feature-item">
+            <div class="icon">🔑</div>
+            <h3>Google OAuth sign-in</h3>
+            <p>Secure Google sign-in. Revoke access at any time from your Google Account settings.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="how-it-works">
+        <h2>How Smart Mailbox Cleaner works</h2>
+        <div class="steps">
+          <div class="step">
+            <div class="num">1</div>
+            <h3>Connect your Gmail account</h3>
+            <p>Sign in with Google. We request only the minimum Gmail API permissions — read metadata and move to Trash. We never request access to email content.</p>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <h3>Scan and categorise emails</h3>
+            <p>We scan your Gmail metadata and group emails into categories: large attachments (10MB+), old promotions, social notifications, expired calendar invites, and more.</p>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <h3>Clean with one click, undo anytime</h3>
+            <p>Review the suggestions and move categories to Trash with one click. Changed your mind? Undo from your dashboard within 30 days — no questions asked.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Google API permissions disclosure -->
+      <div class="permissions" style="margin-left:24px;margin-right:24px;">
+        <h2>📋 Google API Permissions we request</h2>
+        <p>
+          We request only the permissions necessary to provide the service. You can revoke our access at any time from
+          <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Account Permissions</a>.
+        </p>
+        <div class="perm-grid">
+          <div class="perm-card">
+            <code>gmail.readonly</code>
+            <p>Read email metadata (size, labels, dates) to find emails using storage. We never read email body content or attachments.</p>
+          </div>
+          <div class="perm-card">
+            <code>gmail.modify</code>
+            <p>Move selected emails to Gmail Trash at your explicit request, and restore them when you use the Undo feature.</p>
+          </div>
+          <div class="perm-card">
+            <code>drive.metadata.readonly</code>
+            <p>Check your Google storage quota to display how much Gmail storage you are currently using.</p>
+          </div>
+        </div>
+        <p class="perm-note">
+          Our use of Google API data follows the
+          <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>,
+          including Limited Use requirements. We do not sell or use your data for advertising.
+        </p>
+      </div>
+
+      <!-- Footer with prominent Privacy Policy link -->
+      <footer>
+        <div class="logo-sm">
+          <img src="/icon-72.png" alt="" />
+          Smart Mailbox Cleaner
+        </div>
+        <!-- These links are what Google's crawler specifically checks for -->
+        <div class="footer-links">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="mailto:umarsofiyaan@gmail.com">Contact</a>
+        </div>
+        <p class="copy">© 2026 Smart Mailbox Cleaner</p>
+      </footer>
+
+    </div><!-- end #static-shell -->
+
+    <!-- React app loads and takes over once JS executes -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
