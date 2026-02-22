@@ -14,7 +14,8 @@
     "@stripe/stripe-js": "^3.0.0",
     "axios": "^1.6.5",
     "lucide-react": "^0.309.0",
-    "clsx": "^2.1.0"
+    "clsx": "^2.1.0",
+    "@sentry/react": "^7.99.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

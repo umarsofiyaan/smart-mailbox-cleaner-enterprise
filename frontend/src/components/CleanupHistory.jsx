@@ -1,6 +1,7 @@
 // src/components/CleanupHistory.jsx
-// Shows all cleanup actions with 30-day undo support.
-// Greyed-out undo button with tooltip after 30 days.
+// Round 3: Paginated — loads 20 at a time with a "Load more" button.
+// Previously loaded all records at once which would slow down for power users.
+
 import { useState, useEffect, useCallback } from 'react';
 import { cleanupApi } from '../api/client';
 
@@ -49,34 +50,31 @@ const CATEGORY_ICONS = {
   drive_attachments:      '☁️',
 };
 
+const PAGE_SIZE = 20;
+
 function HistoryRow({ action, onUndo, undoingId }) {
-  const canUndo = action.canUndo;
-  const isUndoing = undoingId === action.id;
-  const isUndone = action.status === 'undone';
-  const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
   const [showTooltip, setShowTooltip] = useState(false);
+  const canUndo   = action.canUndo;
+  const isUndoing = undoingId === action.id;
+  const isUndone  = action.status === 'undone';
+  const timeLeft  = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
     <div className="flex items-center gap-4 py-4 border-b border-gray-50 last:border-0">
-      {/* Icon */}
       <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center text-base flex-shrink-0">
         {CATEGORY_ICONS[action.category] || '📧'}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-gray-900 truncate">
           {CATEGORY_LABELS[action.category] || action.category}
         </p>
         <p className="text-xs text-gray-400 mt-0.5">
-          {action.messageCount?.toLocaleString()} emails &middot; {formatMB(action.bytesFreed)} freed &middot; {formatDate(action.executedAt)}
+          {action.messageCount?.toLocaleString()} emails · {formatMB(action.bytesFreed)} freed · {formatDate(action.executedAt)}
         </p>
-        {timeLeft && (
-          <p className="text-xs text-orange-500 mt-0.5 font-medium">{timeLeft}</p>
-        )}
+        {timeLeft && <p className="text-xs text-orange-500 mt-0.5 font-medium">{timeLeft}</p>}
       </div>
 
-      {/* Status / Undo button */}
       <div className="flex-shrink-0 relative">
         {isUndone ? (
           <span className="text-xs font-medium text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">
@@ -88,7 +86,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
             disabled={isUndoing}
             className="text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
           >
-            {isUndoing ? 'Restoring\u2026' : 'Undo'}
+            {isUndoing ? 'Restoring…' : 'Undo'}
           </button>
         ) : (
           <div
@@ -106,9 +104,8 @@ function HistoryRow({ action, onUndo, undoingId }) {
               <div className="absolute right-0 bottom-full mb-2 w-64 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-xl z-10">
                 <p className="font-semibold mb-0.5">Undo window expired</p>
                 <p className="text-gray-300 leading-snug">
-                  These emails are no longer in Trash. Gmail automatically purges Trash after 30 days and they cannot be recovered.
+                  Gmail purges Trash after 30 days. These emails cannot be recovered.
                 </p>
-                {/* Tooltip arrow */}
                 <div className="absolute right-4 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900" />
               </div>
             )}
@@ -120,17 +117,26 @@ function HistoryRow({ action, onUndo, undoingId }) {
 }
 
 export default function CleanupHistory({ onUndoSuccess }) {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [undoingId, setUndoingId] = useState(null);
-  const [error, setError] = useState('');
+  const [history,     setHistory]     = useState([]);
+  const [total,       setTotal]       = useState(0);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [offset,      setOffset]      = useState(0);
+  const [loading,     setLoading]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [undoingId,   setUndoingId]   = useState(null);
+  const [error,       setError]       = useState('');
 
   const load = useCallback(async () => {
     try {
-      const res = await cleanupApi.getHistory();
-      setHistory(res.data.history || []);
+      setLoading(true);
+      const res  = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset: 0 });
+      const data = res.data;
+      setHistory(data.items || []);
+      setTotal(data.total || 0);
+      setHasMore(data.hasMore || false);
+      setOffset(PAGE_SIZE);
     } catch {
-      // silently fail — history is bonus feature
+      // silent — history is bonus feature
     } finally {
       setLoading(false);
     }
@@ -138,12 +144,27 @@ export default function CleanupHistory({ onUndoSuccess }) {
 
   useEffect(() => { load(); }, [load]);
 
+  async function loadMore() {
+    try {
+      setLoadingMore(true);
+      const res  = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset });
+      const data = res.data;
+      setHistory(prev => [...prev, ...(data.items || [])]);
+      setHasMore(data.hasMore || false);
+      setOffset(prev => prev + PAGE_SIZE);
+    } catch {
+      // silent
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   async function handleUndo(actionId) {
     setUndoingId(actionId);
     setError('');
     try {
       await cleanupApi.undo(actionId);
-      await load();
+      await load();           // reload from page 1 to reflect updated status
       onUndoSuccess?.();
     } catch (err) {
       setError(err.response?.data?.error || 'Undo failed. Please try again.');
@@ -155,7 +176,7 @@ export default function CleanupHistory({ onUndoSuccess }) {
   if (loading) {
     return (
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3">
           <div className="w-5 h-5 border-2 border-gray-200 border-t-brand-600 rounded-full animate-spin" />
           <p className="text-sm text-gray-400">Loading cleanup history...</p>
         </div>
@@ -169,7 +190,6 @@ export default function CleanupHistory({ onUndoSuccess }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Header */}
       <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-gray-900 text-sm">Cleanup History</h3>
@@ -180,7 +200,7 @@ export default function CleanupHistory({ onUndoSuccess }) {
           </p>
         </div>
         <span className="text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">
-          {history.length} total
+          {total} total
         </span>
       </div>
 
@@ -190,7 +210,6 @@ export default function CleanupHistory({ onUndoSuccess }) {
         </div>
       )}
 
-      {/* History list */}
       <div className="px-5">
         {history.map(action => (
           <HistoryRow
@@ -202,7 +221,25 @@ export default function CleanupHistory({ onUndoSuccess }) {
         ))}
       </div>
 
-      {/* Footer note */}
+      {hasMore && (
+        <div className="px-5 py-4 border-t border-gray-50">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="w-full text-sm text-brand-600 font-semibold hover:text-brand-700 py-2 rounded-xl hover:bg-brand-50 transition-colors disabled:opacity-50"
+          >
+            {loadingMore ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-brand-300 border-t-brand-600 rounded-full animate-spin" />
+                Loading…
+              </span>
+            ) : (
+              `Load more (${total - history.length} remaining)`
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
         <p className="text-xs text-gray-400">
           &#8635; Emails are moved to Trash, not permanently deleted. Gmail purges Trash after 30 days.

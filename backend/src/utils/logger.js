@@ -1,9 +1,14 @@
 // src/utils/logger.js
-// Production-safe logger. NEVER logs email content.
+// Production-safe structured logger.
+// NEVER logs email content, tokens, or bodies.
+// All logger.error() calls are automatically forwarded to Sentry.
+
+const { captureException } = require('../config/sentry');
+
 const SENSITIVE_FIELDS = [
   'body', 'snippet', 'payload', 'raw', 'emailBody',
   'refresh_token', 'access_token', 'password', 'secret',
-  'authorization', 'cookie'
+  'authorization', 'cookie', 'razorpay_signature',
 ];
 
 function sanitize(obj, depth = 0) {
@@ -31,6 +36,7 @@ const logger = {
       ...(data ? { data: sanitize(data) } : {}),
     }));
   },
+
   warn: (msg, data) => {
     console.warn(JSON.stringify({
       level: 'warn',
@@ -39,14 +45,29 @@ const logger = {
       ...(data ? { data: sanitize(data) } : {}),
     }));
   },
-  error: (msg, err, data) => {
+
+  /**
+   * Log an error and automatically send it to Sentry.
+   *
+   * Usage (same API as before — no changes needed in existing code):
+   *   logger.error('Scan failed', err, { scanId, userId })
+   *
+   * @param {string} msg     - Human-readable description
+   * @param {Error}  err     - The actual Error object (or string)
+   * @param {object} context - Extra key/value pairs for debugging
+   */
+  error: (msg, err, context = {}) => {
     console.error(JSON.stringify({
       level: 'error',
       ts: new Date().toISOString(),
       msg,
-      error: err?.message,
-      ...(data ? { data: sanitize(data) } : {}),
+      error: err?.message || String(err),
+      stack: err?.stack,
+      ...(Object.keys(context).length ? { data: sanitize(context) } : {}),
     }));
+
+    // Forward to Sentry — captureException is a no-op if SENTRY_DSN not set
+    captureException(err, { msg, ...sanitize(context) });
   },
 };
 

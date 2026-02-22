@@ -19,6 +19,7 @@ const {
   deleteUserTokens,
 } = require('../services/tokenService');
 const { grantDailyQuotaOnLogin } = require('../services/quotaService');
+const { sendWelcomeEmail } = require('../services/emailService');
 const { authLimiter } = require('../middleware/security');
 const logger = require('../utils/logger');
 
@@ -113,6 +114,11 @@ router.get('/google/callback', authLimiter, async (req, res) => {
 
     const user = userResult.rows[0];
     const isNewUser = user.is_new_user === true || user.is_new_user === 'true';
+
+    // Send welcome email for brand-new signups (fire-and-forget, non-blocking)
+    if (isNewUser) {
+      sendWelcomeEmail(user.email, user.display_name);
+    }
 
     // Initialize subscription record if not exists
     await query(

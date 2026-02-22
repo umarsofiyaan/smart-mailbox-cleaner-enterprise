@@ -1,56 +1,50 @@
 // src/routes/cleanup.js
 const express = require('express');
-const { body, param, validationResult } = require('express-validator');
+const { body, param, query: qv, validationResult } = require('express-validator');
 const router = express.Router();
 
-const { requireAuth } = require('../middleware/auth');
-const { requirePro } = require('../middleware/requirePro');
-const { cleanupLimiter } = require('../middleware/security');
-const { getOAuthTokens } = require('../services/tokenService');
+const { requireAuth }       = require('../middleware/auth');
+const { cleanupLimiter }    = require('../middleware/security');
+const { getOAuthTokens }    = require('../services/tokenService');
 const { executeCleanup, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
-const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
+const { checkQuota, consumeQuota, getQuotaSummary }      = require('../services/quotaService');
+const {
+  sendCleanupReceipt,
+  sendQuotaWarningIfNeeded,
+  sendQuotaExhaustedIfNeeded,
+} = require('../services/emailService');
 const { query } = require('../config/database');
-const logger = require('../utils/logger');
+const logger    = require('../utils/logger');
 
-/**
- * POST /cleanup/execute
- * Execute bulk cleanup for a category (Pro only).
- * Moves emails to Trash — NEVER permanent delete.
- * Enforces free-tier quota for non-Pro users.
- * 
- * Body: { scanId, category, messageIds, estimatedBytes }
- */
+// ─── Execute ──────────────────────────────────────────────────────────────────
+
 router.post(
   '/execute',
-  requireAuth,         // ← requirePro removed: free users can now use quota
+  requireAuth,
   cleanupLimiter,
   [
-    body('scanId').isUUID().withMessage('Valid scanId required.'),
-    body('category').isString().isLength({ min: 1, max: 100 }).withMessage('Category required.'),
-    body('messageIds').isArray({ min: 1, max: 5000 }).withMessage('messageIds must be an array of 1-5000 IDs.'),
-    body('messageIds.*').isString().withMessage('Each message ID must be a string.'),
-    body('estimatedBytes').isInt({ min: 0 }).withMessage('estimatedBytes must be a non-negative integer.'),
+    body('scanId').isUUID(),
+    body('category').isString().isLength({ min: 1, max: 100 }),
+    body('messageIds').isArray({ min: 1, max: 5000 }),
+    body('messageIds.*').isString(),
+    body('estimatedBytes').isInt({ min: 0 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { scanId, category, messageIds, estimatedBytes } = req.body;
     const userId = req.user.id;
 
     // Verify scan belongs to user
     const scanCheck = await query(
-      'SELECT id FROM scans WHERE id = $1 AND user_id = $2',
-      [scanId, userId]
+      'SELECT id FROM scans WHERE id = $1 AND user_id = $2', [scanId, userId]
     );
-
     if (scanCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
     }
 
-    // Check quota — Pro users get unlimited, free users capped
+    // Check quota
     const quotaCheck = await checkQuota(userId);
     if (!quotaCheck.allowed) {
       return res.status(403).json({
@@ -60,19 +54,49 @@ router.post(
       });
     }
 
-    // Cap to available quota (Infinity for Pro, remaining count for free)
-    const effectiveMessageCount = Math.min(messageIds.length, quotaCheck.remaining);
-    if (effectiveMessageCount < messageIds.length) {
-      // Trim message IDs to match quota
-      messageIds.length = effectiveMessageCount;
-    }
+    // Trim message list to quota remaining
+    const effectiveIds = messageIds.slice(0, quotaCheck.remaining);
 
     try {
       const tokens = await getOAuthTokens(userId);
-      const result = await executeCleanup(userId, scanId, category, messageIds, estimatedBytes, tokens);
+      const result = await executeCleanup(userId, scanId, category, effectiveIds, estimatedBytes, tokens);
 
-      // Consume quota after successful cleanup
       await consumeQuota(userId, result.successCount);
+
+      // ── Fire-and-forget emails ────────────────────────────────────────────
+      setImmediate(async () => {
+        try {
+          const userResult = await query(
+            'SELECT email, display_name FROM users WHERE id = $1', [userId]
+          );
+          if (!userResult.rows[0]) return;
+
+          const { email, display_name } = userResult.rows[0];
+          const updatedQuota = await getQuotaSummary(userId);
+          const isPro              = updatedQuota.isPro;
+          const lifetimeUsed       = updatedQuota.lifetime?.used ?? 0;
+          const lifetimeAllowance  = updatedQuota.lifetime?.allowance ?? 500;
+          const quotaRemaining     = updatedQuota.lifetime?.remaining ?? 0;
+
+          sendCleanupReceipt(email, display_name, {
+            category,
+            messageCount: result.successCount,
+            bytesFreed: result.bytesFreed,
+            undoExpiresAt: result.undoExpiresAt,
+            quotaRemaining,
+            isPro,
+          });
+
+          if (!isPro) {
+            sendQuotaWarningIfNeeded(userId, email, display_name, lifetimeUsed, lifetimeAllowance);
+            if (quotaRemaining === 0) {
+              sendQuotaExhaustedIfNeeded(userId, email, display_name);
+            }
+          }
+        } catch (e) {
+          logger.error('Post-cleanup email error', e);
+        }
+      });
 
       return res.json({
         success: true,
@@ -80,10 +104,8 @@ router.post(
         successCount: result.successCount,
         failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
-        bytesFreedMB: parseFloat((result.bytesFreed / (1024 * 1024)).toFixed(2)),
         undoExpiresAt: result.undoExpiresAt,
-        message: `${result.successCount} emails moved to Trash. You have 30 days to undo this action.`,
-        quotaRemaining: quotaCheck.remaining - result.successCount,
+        message: `${result.successCount} emails moved to Trash. You have 30 days to undo.`,
       });
 
     } catch (err) {
@@ -93,101 +115,66 @@ router.post(
   }
 );
 
-/**
- * POST /cleanup/undo/:actionId
- * Restore trashed emails (undo cleanup).
- * Available within 30 days.
- */
+// ─── Undo ─────────────────────────────────────────────────────────────────────
+
 router.post(
   '/undo/:actionId',
   requireAuth,
-  [param('actionId').isUUID().withMessage('Valid actionId required.')],
+  [param('actionId').isUUID()],
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { actionId } = req.params;
-    const userId = req.user.id;
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      const tokens = await getOAuthTokens(userId);
-      const result = await undoCleanup(actionId, userId, tokens);
-
+      const tokens = await getOAuthTokens(req.user.id);
+      const result = await undoCleanup(req.params.actionId, req.user.id, tokens);
       return res.json({
         success: true,
-        actionId,
+        actionId: req.params.actionId,
         restoredCount: result.successCount,
         failedCount: result.failedCount,
-        message: `${result.successCount} emails restored from Trash.`,
       });
-
     } catch (err) {
-      logger.warn('Undo failed', { actionId, userId, error: err.message });
       return res.status(400).json({ error: err.message });
     }
   }
 );
 
-/**
- * GET /cleanup/history
- * List recent cleanup actions with undo eligibility.
- */
-router.get('/history', requireAuth, async (req, res) => {
-  try {
-    const history = await getCleanupHistory(req.user.id);
-    return res.json({ history });
-  } catch (err) {
-    logger.error('Failed to fetch cleanup history', err);
-    return res.status(500).json({ error: 'Failed to fetch history.' });
+// ─── History (paginated) ──────────────────────────────────────────────────────
+
+router.get(
+  '/history',
+  requireAuth,
+  [
+    qv('limit').optional().isInt({ min: 1, max: 100 }),
+    qv('offset').optional().isInt({ min: 0 }),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    try {
+      const result = await getCleanupHistory(
+        req.user.id,
+        parseInt(req.query.limit)  || 20,
+        parseInt(req.query.offset) || 0
+      );
+      return res.json(result);
+    } catch (err) {
+      logger.error('Failed to fetch cleanup history', err);
+      return res.status(500).json({ error: 'Failed to fetch history.' });
+    }
   }
-});
+);
 
-/**
- * GET /cleanup/action/:actionId
- * Get details of a specific cleanup action.
- */
-router.get('/action/:actionId', requireAuth, async (req, res) => {
-  const { actionId } = req.params;
+// ─── Quota ────────────────────────────────────────────────────────────────────
 
-  const result = await query(
-    `SELECT id, category, status, message_count, bytes_freed,
-            executed_at, undone_at, expires_at
-     FROM cleanup_actions
-     WHERE id = $1 AND user_id = $2`,
-    [actionId, req.user.id]
-  );
-
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: 'Action not found.' });
-  }
-
-  const action = result.rows[0];
-  return res.json({
-    id: action.id,
-    category: action.category,
-    status: action.status,
-    messageCount: action.message_count,
-    bytesFreed: action.bytes_freed,
-    bytesFreedMB: parseFloat((action.bytes_freed / (1024 * 1024)).toFixed(2)),
-    executedAt: action.executed_at,
-    undoneAt: action.undone_at,
-    expiresAt: action.expires_at,
-    canUndo: action.status === 'complete' && new Date(action.expires_at) > new Date(),
-  });
-});
-
-/**
- * GET /cleanup/quota
- * Return current user's quota summary (for QuotaBanner component).
- */
 router.get('/quota', requireAuth, async (req, res) => {
   try {
     const quota = await getQuotaSummary(req.user.id);
     return res.json({ quota });
   } catch (err) {
-    logger.error('Failed to fetch quota', err, { userId: req.user.id });
+    logger.error('Failed to fetch quota', err);
     return res.status(500).json({ error: 'Failed to fetch quota.' });
   }
 });

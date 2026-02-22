@@ -23,7 +23,8 @@
     "uuid": "^9.0.0",
     "morgan": "^1.10.0",
     "express-validator": "^7.0.1",
-    "cookie-parser": "^1.4.6"
+    "cookie-parser": "^1.4.6",
+    "@sentry/node": "^7.99.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
