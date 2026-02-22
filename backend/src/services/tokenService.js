@@ -126,9 +126,10 @@ async function rotateRefreshToken(refreshToken) {
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
      WHERE rt.token_hash = $1
-       AND u.deleted_at IS NULL`,   -- ← FIX: reject tokens for deleted users
+       AND u.deleted_at IS NULL`,
     [hash]
   );
+  // FIX: reject tokens for deleted users
 
   // Check without deleted_at to give a better error message
   if (result.rows.length === 0) {
