@@ -5,6 +5,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Pricing from './pages/Pricing';
 import Admin from './pages/Admin';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -16,7 +18,6 @@ function ProtectedRoute({ children }) {
   return user ? children : <Navigate to="/login" replace />;
 }
 
-// Admin route — also protected, but we check is_admin in Admin.jsx component
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return (
@@ -27,7 +28,6 @@ function AdminRoute({ children }) {
   return user ? children : <Navigate to="/login" replace />;
 }
 
-// Page shown after extension OAuth — passes tokens back, then closes
 function ExtensionAuth() {
   const params = new URLSearchParams(window.location.search);
   const accessToken = params.get('access_token');
@@ -36,7 +36,6 @@ function ExtensionAuth() {
   if (accessToken) {
     localStorage.setItem('access_token', accessToken);
     if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
-    // Signal extension (Chrome extension opens this page)
     window.close();
   }
 
@@ -55,15 +54,18 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/pricing" element={<Pricing />} />
+          {/* Public pages */}
+          <Route path="/login"         element={<Login />} />
+          <Route path="/pricing"       element={<Pricing />} />
+          <Route path="/privacy"       element={<Privacy />} />
+          <Route path="/terms"         element={<Terms />} />
           <Route path="/extension-auth" element={<ExtensionAuth />} />
-          <Route path="/admin" element={
-            <AdminRoute><Admin /></AdminRoute>
-          } />
-          <Route path="/dashboard" element={
-            <ProtectedRoute><Dashboard /></ProtectedRoute>
-          } />
+
+          {/* Protected pages */}
+          <Route path="/admin"     element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+
+          {/* Default */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
