@@ -12,6 +12,7 @@ import ProgressBar from '../components/ProgressBar';
 import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
+import SubscriptionModal from '../components/SubscriptionModal';
 import { subscriptionApi, cleanupApi } from '../api/client';
 
 function formatGB(bytes) {
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [historyKey, setHistoryKey] = useState(0);
   const [quotaRefreshKey, setQuotaRefreshKey] = useState(0); // triggers QuotaBanner re-fetch
   const [quota, setQuota] = useState(null); // free-tier quota info
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const profileMenuRef = useRef(null);
 
   const isPro = user?.subscription?.isPro;
@@ -57,6 +59,10 @@ export default function Dashboard() {
 
     if (searchParams.get('upgrade') === 'success') {
       setShowUpgradeBanner(true);
+    }
+    if (searchParams.get('manage') === 'subscription') {
+      setShowSubscriptionModal(true);
+      window.history.replaceState({}, document.title, '/dashboard');
     }
   }, [user]);
 
@@ -184,7 +190,7 @@ export default function Dashboard() {
                     </button>
                   )}
                   {isPro && (
-                    <button onClick={() => { handleManageSubscription(); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                    <button onClick={() => { setShowSubscriptionModal(true); setProfileMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
                       Manage subscription
                     </button>
                   )}
@@ -402,6 +408,10 @@ export default function Dashboard() {
         onDismiss={() => setUndoAction(null)}
         isUndoing={undoing}
       />
+
+      {showSubscriptionModal && (
+        <SubscriptionModal user={user} onClose={() => setShowSubscriptionModal(false)} />
+      )}
     </div>
   );
 }
