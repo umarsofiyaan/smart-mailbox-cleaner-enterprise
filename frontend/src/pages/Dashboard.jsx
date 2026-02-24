@@ -51,12 +51,12 @@ function ScanButton({ status, isPro, onQuickScan, onCustomScan }) {
   }, []);
 
   return (
-    <div className="relative inline-flex items-center rounded-xl overflow-hidden shadow-sm" ref={ref}>
+    <div className="relative flex items-center" ref={ref}>
       {/* Primary button */}
       <button
         onClick={onQuickScan}
         disabled={isRunning}
-        className="flex items-center gap-2 bg-brand-600 text-white font-semibold px-5 py-2.5 hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 bg-brand-600 text-white font-semibold px-5 py-2.5 rounded-l-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm border-r border-brand-700"
       >
         {isRunning ? (
           <>
@@ -70,12 +70,12 @@ function ScanButton({ status, isPro, onQuickScan, onCustomScan }) {
         )}
       </button>
 
-      {/* Dropdown chevron - slightly darker shade */}
+      {/* Dropdown chevron */}
       <button
         onClick={() => setDropOpen(v => !v)}
         disabled={isRunning}
         aria-label="More scan options"
-        className="flex items-center justify-center bg-brand-700 text-white px-4 py-2.5 hover:bg-brand-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        className="flex items-center justify-center bg-brand-600 text-white px-2.5 py-2.5 rounded-r-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
       >
         <svg
           className={`w-4 h-4 transition-transform duration-200 ${dropOpen ? 'rotate-180' : ''}`}
