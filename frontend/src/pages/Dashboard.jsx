@@ -13,6 +13,7 @@ import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
 import SubscriptionModal from '../components/SubscriptionModal';
+import CustomScanBuilder from '../components/CustomScanBuilder';
 import { subscriptionApi, cleanupApi } from '../api/client';
 
 function formatGB(bytes) {
@@ -22,26 +23,129 @@ function formatGB(bytes) {
   return `${(bytes / (1024 ** 2)).toFixed(0)} MB`;
 }
 
+// ── Scan type badge shown next to "Last scan" subtitle ───────────────────────
+
+function ScanTypeBadge({ scanType }) {
+  if (!scanType || scanType === 'quick') return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full ml-1">
+      🔍 Custom
+    </span>
+  );
+}
+
+// ── Split scan button: [Quick Scan] [▾ dropdown] ─────────────────────────────
+
+function ScanButton({ status, isPro, onQuickScan, onCustomScan }) {
+  const [dropOpen, setDropOpen] = useState(false);
+  const ref = useRef(null);
+
+  const isRunning = status === 'running' || status === 'starting';
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setDropOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="relative flex items-center" ref={ref}>
+      {/* Primary button */}
+      <button
+        onClick={onQuickScan}
+        disabled={isRunning}
+        className="flex items-center gap-2 bg-brand-600 text-white font-semibold px-5 py-2.5 rounded-l-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm border-r border-brand-700"
+      >
+        {isRunning ? (
+          <>
+            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            Scanning…
+          </>
+        ) : (
+          <>
+            🔍 {status === 'complete' ? 'Re-scan' : 'Scan Mailbox'}
+          </>
+        )}
+      </button>
+
+      {/* Dropdown chevron */}
+      <button
+        onClick={() => setDropOpen(v => !v)}
+        disabled={isRunning}
+        aria-label="More scan options"
+        className="flex items-center justify-center bg-brand-600 text-white px-2.5 py-2.5 rounded-r-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+      >
+        <svg
+          className={`w-4 h-4 transition-transform duration-200 ${dropOpen ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Dropdown menu */}
+      {dropOpen && (
+        <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Quick Scan option */}
+          <button
+            onClick={() => { setDropOpen(false); onQuickScan(); }}
+            className="w-full flex items-start gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors text-left border-b border-gray-50"
+          >
+            <span className="text-xl mt-0.5">⚡</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Quick Scan</p>
+              <p className="text-xs text-gray-400 mt-0.5 leading-snug">
+                Auto-scan 7 categories — large files, promotions, social, and more
+              </p>
+            </div>
+          </button>
+
+          {/* Custom Scan option */}
+          <button
+            onClick={() => { setDropOpen(false); onCustomScan(); }}
+            className="w-full flex items-start gap-3 px-4 py-3.5 hover:bg-indigo-50 transition-colors text-left"
+          >
+            <span className="text-xl mt-0.5">🎛️</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                Custom Scan
+                <span className="ml-1.5 text-xs font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded-full">New</span>
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5 leading-snug">
+                Filter by size, date, sender, category, and more — your rules
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
   const { user, logout, isNewUser, markOnboardingComplete } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { scan, status, error, startScan, loadLatestScan } = useScan();
+  const { scan, status, error, startScan, startCustomScan, loadLatestScan } = useScan();
   const { executing, undoing, lastAction, executeCleanup, undoCleanup } = useCleanup();
 
-  const [pendingCleanup, setPendingCleanup] = useState(null);
-  const [undoAction, setUndoAction] = useState(null);
-  const [showUpgradeBanner, setShowUpgradeBanner] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [historyKey, setHistoryKey] = useState(0);
-  const [quotaRefreshKey, setQuotaRefreshKey] = useState(0); // triggers QuotaBanner re-fetch
-  const [quota, setQuota] = useState(null); // free-tier quota info
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [pendingCleanup,       setPendingCleanup]       = useState(null);
+  const [undoAction,           setUndoAction]           = useState(null);
+  const [showUpgradeBanner,    setShowUpgradeBanner]    = useState(false);
+  const [profileMenuOpen,      setProfileMenuOpen]      = useState(false);
+  const [historyKey,           setHistoryKey]           = useState(0);
+  const [quotaRefreshKey,      setQuotaRefreshKey]      = useState(0);
+  const [quota,                setQuota]                = useState(null);
+  const [showSubscriptionModal,setShowSubscriptionModal]= useState(false);
+  const [showCustomScan,       setShowCustomScan]       = useState(false);
   const profileMenuRef = useRef(null);
 
   const isPro = user?.subscription?.isPro;
 
-  // Close profile menu when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) {
@@ -57,9 +161,7 @@ export default function Dashboard() {
     loadLatestScan();
     if (!isPro) loadQuota();
 
-    if (searchParams.get('upgrade') === 'success') {
-      setShowUpgradeBanner(true);
-    }
+    if (searchParams.get('upgrade') === 'success') setShowUpgradeBanner(true);
     if (searchParams.get('manage') === 'subscription') {
       setShowSubscriptionModal(true);
       window.history.replaceState({}, document.title, '/dashboard');
@@ -69,7 +171,6 @@ export default function Dashboard() {
   async function loadQuota() {
     try {
       const res = await cleanupApi.getQuota();
-      // response shape: { quota: { lifetime, daily, ... } } or flat
       const data = res.data?.quota || res.data;
       setQuota(data);
     } catch (err) {
@@ -77,16 +178,22 @@ export default function Dashboard() {
     }
   }
 
-  // Derive quota values
   const quotaLifetimeRemaining = quota?.lifetime?.remaining ?? 0;
-  const quotaDailyRemaining = quota?.daily?.remaining ?? 0;
+  const quotaDailyRemaining    = quota?.daily?.remaining    ?? 0;
   const quotaRemaining = quotaLifetimeRemaining > 0 ? quotaLifetimeRemaining : quotaDailyRemaining;
   const isFreeWithQuota = !isPro && quotaRemaining > 0;
 
+  function handleQuickScan() {
+    startScan(isPro ? 'all' : '12months');
+  }
+
+  function handleCustomScanStart(params) {
+    setShowCustomScan(false);
+    startCustomScan(params);
+  }
+
   function handleCleanupRequest(categoryData) {
-    // Free users can clean up to their quota limit
     if (!isPro && quotaRemaining <= 0) {
-      // Quota exhausted — scroll to quota banner instead of navigating away
       document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
       return;
     }
@@ -95,12 +202,11 @@ export default function Dashboard() {
 
   async function handleConfirmCleanup() {
     if (!pendingCleanup || !scan) return;
-
     try {
       const result = await executeCleanup({
-        scanId: scan.id,
-        category: pendingCleanup.category,
-        messageIds: pendingCleanup.messageIds,
+        scanId:         scan.id,
+        category:       pendingCleanup.category,
+        messageIds:     pendingCleanup.messageIds,
         estimatedBytes: pendingCleanup.estimatedBytes,
       });
 
@@ -108,10 +214,9 @@ export default function Dashboard() {
       setUndoAction(result);
       setHistoryKey(k => k + 1);
       if (!isPro) {
-        loadQuota();                          // update Dashboard's own quota state
-        setQuotaRefreshKey(k => k + 1);      // trigger QuotaBanner to re-fetch too
+        loadQuota();
+        setQuotaRefreshKey(k => k + 1);
       }
-
     } catch (err) {
       setPendingCleanup(null);
       alert(err.message);
@@ -138,20 +243,18 @@ export default function Dashboard() {
     }
   }
 
-  const categories = scan?.categories?.filter(c => c.messageCount > 0) || [];
+  const categories   = scan?.categories?.filter(c => c.messageCount > 0) || [];
   const totalFreeableGB = scan?.estimatedFreeableGB || 0;
+  const isRunning    = status === 'running' || status === 'starting';
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Nav */}
+
+      {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img
-              src="/icon-72.png"
-              alt="Smart Mailbox Cleaner"
-              className="w-8 h-8 rounded-lg"
-            />
+            <img src="/icon-72.png" alt="Smart Mailbox Cleaner" className="w-8 h-8 rounded-lg" />
             <span className="font-bold text-gray-900">Smart Mailbox Cleaner</span>
           </div>
 
@@ -174,7 +277,9 @@ export default function Dashboard() {
               >
                 {user?.avatarUrl
                   ? <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full" />
-                  : <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 font-semibold text-sm">{user?.displayName?.[0]}</div>
+                  : <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 font-semibold text-sm">
+                      {user?.displayName?.[0]}
+                    </div>
                 }
               </button>
 
@@ -216,69 +321,57 @@ export default function Dashboard() {
       )}
 
       <main className="max-w-5xl mx-auto px-4 py-8">
-        {/* Header */}
+
+        {/* ── Header ──────────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
               Hello, {user?.displayName?.split(' ')[0]} 👋
             </h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-gray-500 text-sm mt-1 flex items-center gap-1">
               {status === 'complete' && scan
-                ? `Last scan: ${new Date(scan.completedAt).toLocaleString()}`
-                : 'Scan your mailbox to see what you can safely free up.'}
+                ? <>Last scan: {new Date(scan.completedAt).toLocaleString()}<ScanTypeBadge scanType={scan.scanType} /></>
+                : 'Scan your mailbox to see what you can safely free up.'
+              }
             </p>
           </div>
 
-          <button
-            onClick={() => startScan(isPro ? 'all' : '12months')}
-            disabled={status === 'running' || status === 'starting'}
-            className="flex items-center gap-2 bg-brand-600 text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-          >
-            {(status === 'running' || status === 'starting') ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Scanning…
-              </>
-            ) : (
-              <>
-                🔍 {status === 'complete' ? 'Re-scan' : 'Scan Mailbox'}
-              </>
-            )}
-          </button>
+          {/* ── Split scan button ─────────────────────────────────────────────── */}
+          <ScanButton
+            status={status}
+            isPro={isPro}
+            onQuickScan={handleQuickScan}
+            onCustomScan={() => setShowCustomScan(true)}
+          />
         </div>
 
         {/* Error state */}
         {error && (
           <div className="bg-red-50 border border-red-100 rounded-xl px-5 py-4 mb-6">
             <p className="text-red-700 font-medium">Scan failed: {error}</p>
-            {(error.toLowerCase().includes('api') || error.toLowerCase().includes('disabled') || error.toLowerCase().includes('accessnotconfigured')) && (
+            {(error.toLowerCase().includes('api') || error.toLowerCase().includes('disabled')) && (
               <p className="text-red-600 text-sm mt-2">
-                💡 It looks like Gmail API may not be enabled.{' '}
-                <a
-                  href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline font-semibold"
-                >
+                💡 Gmail API may not be enabled.{' '}
+                <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">
                   Enable it here →
                 </a>
               </p>
             )}
-            <button onClick={() => startScan()} className="text-red-600 text-sm underline mt-2 block">Try again</button>
+            <button onClick={handleQuickScan} className="text-red-600 text-sm underline mt-2 block">Try again</button>
           </div>
         )}
 
         {/* Scanning progress */}
         <div className="mb-6">
-          <ProgressBar status={status} messagesScanned={scan?.progress?.messagesScanned} />
+          <ProgressBar status={status} messagesScanned={scan?.progress?.messagesScanned} scanType={scan?.scanType} />
         </div>
 
-        {/* Quota banner for free users */}
+        {/* Quota banner */}
         <div id="quota-banner">
           <QuotaBanner isPro={isPro} refreshKey={quotaRefreshKey} />
         </div>
 
-        {/* Results */}
+        {/* ── Results ─────────────────────────────────────────────────────────── */}
         {scan && status === 'complete' && (
           <>
             {/* Summary bar */}
@@ -286,10 +379,20 @@ export default function Dashboard() {
               <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-2xl p-6 mb-6 text-white shadow-lg">
                 <p className="text-brand-200 text-sm font-medium mb-1">Estimated space you can free</p>
                 <p className="text-4xl font-bold mb-4">{formatGB(scan.estimatedFreeableBytes)}</p>
-                <div className="flex items-center gap-4 text-sm text-brand-200">
+                <div className="flex items-center gap-4 text-sm text-brand-200 flex-wrap">
                   <span>📧 {scan.progress?.messagesScanned?.toLocaleString()} emails scanned</span>
-                  <span>📁 {categories.length} categories found</span>
+                  <span>📁 {categories.length} {categories.length === 1 ? 'category' : 'categories'} found</span>
+                  {scan.scanType === 'custom' && (
+                    <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                      🔍 Custom scan
+                    </span>
+                  )}
                 </div>
+                {scan.scanType === 'custom' && scan.customQuery && (
+                  <p className="text-brand-300 text-xs mt-2 font-mono truncate" title={scan.customQuery}>
+                    Query: {scan.customQuery}
+                  </p>
+                )}
                 {!isPro && quotaRemaining === 0 && quota && (
                   <button
                     onClick={() => navigate('/pricing')}
@@ -303,7 +406,7 @@ export default function Dashboard() {
 
             {/* Two-column layout */}
             <div className="grid lg:grid-cols-3 gap-6">
-              {/* Storage + info — left column */}
+              {/* Left: storage + upsell */}
               <div className="lg:col-span-1 space-y-6">
                 <StorageGauge storage={scan.storage} />
 
@@ -311,7 +414,7 @@ export default function Dashboard() {
                   <div className="bg-gradient-to-br from-brand-600 to-purple-700 rounded-2xl p-5 text-white">
                     <p className="font-bold mb-2">Upgrade to Pro</p>
                     <p className="text-brand-100 text-sm mb-4 leading-relaxed">
-                      One click to clean everything. Undo for 30 days. Just $5/month.
+                      One click to clean everything. Undo for 30 days. Just ₹500/month.
                     </p>
                     <button
                       onClick={() => navigate('/pricing')}
@@ -321,12 +424,28 @@ export default function Dashboard() {
                     </button>
                   </div>
                 )}
+
+                {/* Custom scan prompt (when on quick scan results) */}
+                {scan.scanType !== 'custom' && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+                    <p className="font-bold text-indigo-900 text-sm mb-1">Want more control?</p>
+                    <p className="text-indigo-600 text-xs mb-3 leading-relaxed">
+                      Use Custom Scan to filter by sender, size, date range, and more.
+                    </p>
+                    <button
+                      onClick={() => setShowCustomScan(true)}
+                      className="w-full bg-indigo-600 text-white font-bold py-2 rounded-xl text-sm hover:bg-indigo-700 transition-colors"
+                    >
+                      🎛️ Try Custom Scan
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Categories — right columns */}
+              {/* Right: categories */}
               <div className="lg:col-span-2 space-y-4">
                 <h2 className="font-semibold text-gray-900 text-lg">
-                  Suggested cleanups
+                  {scan.scanType === 'custom' ? 'Your custom search results' : 'Suggested cleanups'}
                   {!isPro && quotaRemaining > 0 && (
                     <span className="text-sm text-green-600 font-normal ml-2">({quotaRemaining} free credits available)</span>
                   )}
@@ -338,8 +457,14 @@ export default function Dashboard() {
                 {categories.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
                     <p className="text-3xl mb-3">✨</p>
-                    <p className="font-semibold text-gray-900">Your mailbox looks clean!</p>
-                    <p className="text-gray-400 text-sm mt-1">No significant cleanup suggestions found.</p>
+                    <p className="font-semibold text-gray-900">No emails match your filters</p>
+                    <p className="text-gray-400 text-sm mt-1">Try adjusting the date, size, or category filters.</p>
+                    <button
+                      onClick={() => setShowCustomScan(true)}
+                      className="mt-4 text-sm text-indigo-600 hover:text-indigo-700 font-semibold underline"
+                    >
+                      Adjust filters →
+                    </button>
                   </div>
                 ) : (
                   categories.map(cat => (
@@ -365,18 +490,27 @@ export default function Dashboard() {
             <p className="text-5xl mb-4">📬</p>
             <h2 className="text-xl font-bold text-gray-900 mb-2">Ready to scan your mailbox</h2>
             <p className="text-gray-400 mb-6 max-w-md mx-auto">
-              We'll analyze your Gmail metadata and show you exactly what you can safely archive to free up space.
+              Choose <strong>Quick Scan</strong> to automatically find large files and old emails,
+              or use <strong>Custom Scan</strong> to search with your own filters.
             </p>
-            <button
-              onClick={() => startScan()}
-              className="bg-brand-600 text-white font-semibold px-8 py-3 rounded-xl hover:bg-brand-700 transition-colors shadow-sm"
-            >
-              Start Free Scan
-            </button>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <button
+                onClick={handleQuickScan}
+                className="bg-brand-600 text-white font-semibold px-8 py-3 rounded-xl hover:bg-brand-700 transition-colors shadow-sm"
+              >
+                ⚡ Quick Scan
+              </button>
+              <button
+                onClick={() => setShowCustomScan(true)}
+                className="bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200 px-8 py-3 rounded-xl hover:bg-indigo-100 transition-colors"
+              >
+                🎛️ Custom Scan
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Cleanup History — always shown if there are past actions */}
+        {/* Cleanup History */}
         <div className="mt-8">
           <CleanupHistory
             key={historyKey}
@@ -388,10 +522,8 @@ export default function Dashboard() {
         </div>
       </main>
 
-      {/* Onboarding guide for new users */}
-      {isNewUser && (
-        <OnboardingGuide onComplete={markOnboardingComplete} />
-      )}
+      {/* Onboarding */}
+      {isNewUser && <OnboardingGuide onComplete={markOnboardingComplete} />}
 
       {/* Modals */}
       <ConfirmModal
@@ -412,6 +544,14 @@ export default function Dashboard() {
       {showSubscriptionModal && (
         <SubscriptionModal user={user} onClose={() => setShowSubscriptionModal(false)} />
       )}
+
+      {/* Custom Scan Builder */}
+      <CustomScanBuilder
+        isOpen={showCustomScan}
+        onClose={() => setShowCustomScan(false)}
+        onStart={handleCustomScanStart}
+        isScanning={isRunning}
+      />
     </div>
   );
 }
