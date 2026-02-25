@@ -14,7 +14,7 @@ import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
 import SubscriptionModal from '../components/SubscriptionModal';
 import CustomScanBuilder from '../components/CustomScanBuilder';
-import { subscriptionApi, cleanupApi, scanApi } from '../api/client';
+import api, { subscriptionApi, cleanupApi, scanApi } from '../api/client';
 
 function formatGB(bytes) {
   if (!bytes) return '0 MB';
@@ -199,77 +199,80 @@ export default function Dashboard() {
   }
 
   // ── Custom scan ─────────────────────────────────────────────────────────────
-  // IMPORTANT: If useScan.js is the old version, startCustomScan is undefined.
-  // This function handles that case gracefully with a visible error and fallback.
+  // Three-layer defence so this works regardless of which files are deployed:
+  //   Layer 1: useScan hook has startCustomScan  → use it (best, full progress bar)
+  //   Layer 2: client.js has scanApi.startCustomScan → call it directly
+  //   Layer 3: fall back to raw axios api instance → works with ANY client.js version
 
   async function handleCustomScanStart(params) {
     setShowCustomScan(false);
     setCustomScanError('');
 
-    // ── Path 1: updated useScan.js is deployed (normal path) ─────────────────
+    // ── Layer 1: updated useScan.js deployed ──────────────────────────────────
     if (typeof startCustomScan === 'function') {
       startCustomScan(params);
       return;
     }
 
-    // ── Path 2: useScan.js is old — call scanApi directly and poll manually ──
-    // This is a self-contained fallback so the feature works without the hook update.
-    // To remove this fallback, just deploy the provided useScan.js.
-
-    // We drive the scan state via the existing quick-scan mechanism by
-    // injecting a synthetic quick-scan response. Since we can't call setStatus
-    // directly (it lives inside useScan), we use startScan as a bridge and
-    // then immediately replace the scan ID with the custom one.
-    // Instead, we drive the UI by calling startScan with a dummy then abort —
-    // actually the cleanest fallback is a direct API + manual poll approach
-    // using local state to show a loading UI.
-
-    // Show immediate feedback to user so they know something is happening
+    // ── Layer 2 & 3: self-contained fallback (no hook needed) ─────────────────
     const POLL_MS = 3000;
     let pollTimer = null;
-
-    // We can't easily write into useScan's state from outside, so the fallback
-    // shows a simple in-page loading banner until the scan completes, then
-    // reloads the latest scan result.
     setCustomScanError('⏳ Custom scan starting…');
 
     try {
-      const response = await scanApi.startCustomScan(params);
-      const { scanId: newId } = response.data;
+      // Use scanApi.startCustomScan if it exists, otherwise hit the endpoint directly
+      // via the raw `api` axios instance — works even with the old client.js
+      let scanId;
+      try {
+        const res = typeof scanApi?.startCustomScan === 'function'
+          ? await scanApi.startCustomScan(params)
+          : await api.post('/scan/custom', params);
+        scanId = res.data.scanId;
+      } catch (initErr) {
+        // Surface the actual HTTP error message from the backend
+        const msg = initErr?.response?.data?.error || initErr?.message || 'Custom scan failed to start.';
+        const status = initErr?.response?.status;
+        const hint = status === 404
+          ? ' — Backend route /scan/custom not found. Deploy backend/src/routes/scan.js to Render.'
+          : status === 409
+          ? ' — A scan is already running. Wait for it to finish.'
+          : status === 400
+          ? ' — Please set at least one filter before scanning.'
+          : '';
+        throw new Error(`${msg}${hint}`);
+      }
 
-      setCustomScanError('🔍 Custom scan running — this takes 1–3 minutes…');
+      setCustomScanError('🔍 Custom scan running — results will appear shortly…');
 
+      // Poll until complete or failed
       await new Promise((resolve, reject) => {
         pollTimer = setInterval(async () => {
           try {
-            const res  = await scanApi.getScan(newId);
+            const res = typeof scanApi?.getScan === 'function'
+              ? await scanApi.getScan(scanId)
+              : await api.get(`/scan/${scanId}`);
             const data = res.data;
             if (data.status === 'complete') {
               clearInterval(pollTimer);
               resolve(data);
             } else if (data.status === 'failed') {
               clearInterval(pollTimer);
-              reject(new Error(data.error || 'Custom scan failed'));
+              reject(new Error(data.error || 'Custom scan failed on server.'));
             }
-          } catch (e) {
+          } catch (pollErr) {
             clearInterval(pollTimer);
-            reject(e);
+            reject(pollErr);
           }
         }, POLL_MS);
       });
 
-      // Scan complete — reload via the hook's loadLatestScan so UI updates
+      // Done — reload latest scan so UI reflects results
       setCustomScanError('');
       await loadLatestScan();
 
     } catch (err) {
       if (pollTimer) clearInterval(pollTimer);
-      const msg = err?.response?.data?.error || err?.message || 'Custom scan failed to start.';
-      // Show a prominent error — includes deployment hint if it's a 404
-      const hint = err?.response?.status === 404
-        ? ' (Backend scan.js not deployed — please deploy backend/src/routes/scan.js)'
-        : '';
-      setCustomScanError(`❌ ${msg}${hint}`);
+      setCustomScanError(`❌ ${err.message}`);
     }
   }
 
