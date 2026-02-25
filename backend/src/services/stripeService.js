@@ -1,62 +1,138 @@
 // src/services/stripeService.js (Razorpay)
 // Handles subscription lifecycle: checkout, payment verification, webhooks, status.
+// Updated: supports 4 billing plans (monthly, 3-month, 6-month, yearly).
 
 const Razorpay = require('razorpay');
-const crypto = require('crypto');
+const crypto   = require('crypto');
 const { query } = require('../config/database');
-const logger = require('../utils/logger');
+const logger   = require('../utils/logger');
 
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
+  key_id:     process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-const PLAN_AMOUNT = 50000; // ₹500 in paise
+// ─── Plan registry ────────────────────────────────────────────────────────────
+// Maps planId → { periodMonths, totalCount, amountPaise, label }
+// periodMonths: how many months of Pro access each billing cycle gives.
+// totalCount: max billing cycles (Razorpay param — 0 = infinite).
+// Add plan IDs to your .env as shown below.
 
-// ─── Checkout ────────────────────────────────────────────────────────────────
+const PLANS = {
+  // RAZORPAY_PLAN_ID_MONTHLY=<plan_id>
+  [process.env.RAZORPAY_PLAN_ID_MONTHLY || 'plan_monthly']: {
+    label:         'Monthly',
+    periodMonths:  1,
+    totalCount:    12,        // auto-renews up to 12 months
+    amountPaise:   44900,     // ₹449
+  },
+  // RAZORPAY_PLAN_ID_3MONTHS=<plan_id>
+  [process.env.RAZORPAY_PLAN_ID_3MONTHS || 'plan_3months']: {
+    label:         '3 Months',
+    periodMonths:  3,
+    totalCount:    4,         // 4 × 3-month = 1 year max
+    amountPaise:   129900,    // ₹1,299
+  },
+  // RAZORPAY_PLAN_ID_6MONTHS=<plan_id>
+  [process.env.RAZORPAY_PLAN_ID_6MONTHS || 'plan_6months']: {
+    label:         '6 Months',
+    periodMonths:  6,
+    totalCount:    2,         // 2 × 6-month = 1 year max
+    amountPaise:   249900,    // ₹2,499
+  },
+  // RAZORPAY_PLAN_ID_YEARLY=<plan_id>
+  [process.env.RAZORPAY_PLAN_ID_YEARLY || 'plan_yearly']: {
+    label:         'Yearly',
+    periodMonths:  12,
+    totalCount:    3,         // 3 years max
+    amountPaise:   449900,    // ₹4,499
+  },
+};
 
-async function createCheckoutSession(userId, email, displayName) {
+// Fallback: if env vars aren't set yet, use the legacy single plan
+const DEFAULT_PLAN_ID = process.env.RAZORPAY_PLAN_ID
+  || process.env.RAZORPAY_PLAN_ID_MONTHLY
+  || 'plan_monthly';
+
+/**
+ * Resolve which plan to use for checkout.
+ * If the requested planId is in our registry → use it.
+ * Otherwise fall back to the default monthly plan.
+ */
+function resolvePlanId(requestedPlanId) {
+  if (requestedPlanId && PLANS[requestedPlanId]) {
+    return requestedPlanId;
+  }
+  // Legacy: if RAZORPAY_PLAN_ID is set and matches
+  if (process.env.RAZORPAY_PLAN_ID && PLANS[process.env.RAZORPAY_PLAN_ID]) {
+    return process.env.RAZORPAY_PLAN_ID;
+  }
+  return DEFAULT_PLAN_ID;
+}
+
+/**
+ * Calculate period end from plan.
+ * Used as a fallback when Razorpay doesn't return current_end.
+ */
+function calcPeriodEnd(planId) {
+  const plan = PLANS[planId];
+  const months = plan?.periodMonths || 1;
+  const end = new Date();
+  end.setMonth(end.getMonth() + months);
+  return end;
+}
+
+// ─── Checkout ─────────────────────────────────────────────────────────────────
+
+async function createCheckoutSession(userId, email, displayName, requestedPlanId) {
+  const planId   = resolvePlanId(requestedPlanId);
+  const planMeta = PLANS[planId] || { totalCount: 12, amountPaise: 44900, label: 'Monthly' };
+
   try {
     const subscription = await razorpay.subscriptions.create({
-      plan_id: process.env.RAZORPAY_PLAN_ID,
+      plan_id:         planId,
       customer_notify: 1,
-      quantity: 1,
-      total_count: 12,
-      notes: { userId, email },
+      quantity:        1,
+      total_count:     planMeta.totalCount,
+      notes:           { userId, email, planId },
     });
 
-    // Store the Razorpay subscription ID in BOTH columns so webhooks
-    // can find the record regardless of whether verify has been called yet.
-    // FIX: Previously only stored in stripe_customer_id, so webhook lookup
-    // by stripe_subscription_id always failed (race condition).
+    // Store subscription ID in BOTH columns so webhooks can find it
+    // regardless of whether verify has been called yet (race condition fix).
     await query(
       `INSERT INTO subscription_status
          (user_id, stripe_customer_id, stripe_subscription_id, plan, status)
        VALUES ($1, $2, $2, 'free', 'pending')
        ON CONFLICT (user_id) DO UPDATE
-         SET stripe_customer_id = $2,
+         SET stripe_customer_id    = $2,
              stripe_subscription_id = $2,
-             updated_at = NOW()`,
+             updated_at            = NOW()`,
       [userId, subscription.id]
     );
 
-    logger.info('Checkout session created', { userId, subscriptionId: subscription.id });
+    logger.info('Checkout session created', {
+      userId,
+      subscriptionId: subscription.id,
+      planId,
+      planLabel: planMeta.label,
+    });
 
     return {
       subscriptionId: subscription.id,
-      keyId: process.env.RAZORPAY_KEY_ID,
-      amount: PLAN_AMOUNT,
-      currency: 'INR',
-      name: 'Smart Mailbox Cleaner Pro',
+      keyId:          process.env.RAZORPAY_KEY_ID,
+      amount:         planMeta.amountPaise,
+      currency:       'INR',
+      name:           'Smart Mailbox Cleaner Pro',
+      description:    `${planMeta.label} Plan`,
       email,
     };
   } catch (err) {
-    logger.error('Failed to create checkout session', err, { userId, email });
+    logger.error('Failed to create checkout session', err, { userId, email, planId });
     throw err;
   }
 }
 
-// ─── Payment Verification (called by frontend after successful payment) ───────
+// ─── Payment Verification ─────────────────────────────────────────────────────
 
 async function verifyAndActivatePayment(userId, {
   razorpay_payment_id,
@@ -64,7 +140,7 @@ async function verifyAndActivatePayment(userId, {
   razorpay_signature,
 }) {
   try {
-    // Verify HMAC signature
+    // Verify HMAC signature — always non-negotiable
     const body = razorpay_payment_id + '|' + razorpay_subscription_id;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
@@ -75,17 +151,33 @@ async function verifyAndActivatePayment(userId, {
       throw new Error('Payment signature verification failed.');
     }
 
-    // Set period end to +1 month from now
-    const periodEnd = new Date();
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
+    // Fetch the subscription from Razorpay to get the actual plan and period end.
+    // This avoids trusting any frontend-sent plan information for security.
+    let periodEnd;
+    let detectedPlanId;
+    try {
+      const rzpSub = await razorpay.subscriptions.fetch(razorpay_subscription_id);
+      detectedPlanId = rzpSub.plan_id;
+      // Razorpay returns current_end as a Unix timestamp
+      if (rzpSub.current_end) {
+        periodEnd = new Date(rzpSub.current_end * 1000);
+      } else {
+        periodEnd = calcPeriodEnd(detectedPlanId);
+      }
+    } catch (fetchErr) {
+      logger.warn('Could not fetch subscription from Razorpay — using plan-based period', {
+        err: fetchErr.message,
+      });
+      periodEnd = calcPeriodEnd(DEFAULT_PLAN_ID);
+    }
 
     await query(
       `UPDATE subscription_status
-       SET plan                  = 'pro',
-           status                = 'active',
-           stripe_subscription_id = $1,
-           current_period_end    = $2,
-           updated_at            = NOW()
+       SET plan                   = 'pro',
+           status                 = 'active',
+           stripe_subscription_id  = $1,
+           current_period_end     = $2,
+           updated_at             = NOW()
        WHERE user_id = $3`,
       [razorpay_subscription_id, periodEnd, userId]
     );
@@ -93,6 +185,8 @@ async function verifyAndActivatePayment(userId, {
     logger.info('Razorpay subscription activated via verify', {
       userId,
       razorpay_subscription_id,
+      detectedPlanId,
+      periodEnd,
     });
 
     return { success: true };
@@ -106,37 +200,33 @@ async function verifyAndActivatePayment(userId, {
 
 async function handleWebhook(rawBody, signature) {
   try {
-    // Verify webhook signature
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
       .update(rawBody)
       .digest('hex');
 
-    if (expectedSignature !== signature) {
-      throw new Error('Webhook signature invalid.');
-    }
+    if (expectedSignature !== signature) throw new Error('Webhook signature invalid.');
 
     const event = JSON.parse(rawBody);
     logger.info('Razorpay webhook received', { event: event.event });
 
     switch (event.event) {
 
-      // ── Payment succeeded / subscription renewed ──────────────────────────
+      // ── Subscription activated / renewed ─────────────────────────────────
       case 'subscription.activated':
       case 'subscription.charged': {
         const sub = event.payload.subscription.entity;
-        const periodEnd = new Date(sub.current_end * 1000);
+        const periodEnd = sub.current_end
+          ? new Date(sub.current_end * 1000)
+          : calcPeriodEnd(sub.plan_id);
 
-        // FIX: Match by stripe_subscription_id OR stripe_customer_id.
-        // Before `verify` is called, stripe_subscription_id might differ
-        // from what was stored. This ensures the record is always found.
         const result = await query(
           `UPDATE subscription_status
-           SET plan                  = 'pro',
-               status                = 'active',
-               stripe_subscription_id = $1,
-               current_period_end    = $2,
-               updated_at            = NOW()
+           SET plan                   = 'pro',
+               status                 = 'active',
+               stripe_subscription_id  = $1,
+               current_period_end     = $2,
+               updated_at             = NOW()
            WHERE stripe_subscription_id = $1
               OR stripe_customer_id     = $1
            RETURNING user_id`,
@@ -149,15 +239,14 @@ async function handleWebhook(rawBody, signature) {
           logger.info('Webhook: subscription activated/renewed', {
             subId: sub.id,
             userId: result.rows[0].user_id,
+            planId: sub.plan_id,
             periodEnd,
           });
         }
         break;
       }
 
-      // ── Subscription cancelled by user ────────────────────────────────────
-      // Grace period: keep Pro until current_period_end (they paid for the month).
-      // A separate daily cron (in worker.js) downgrades after period_end passes.
+      // ── Cancelled — keep Pro until period ends (grace period) ─────────────
       case 'subscription.cancelled': {
         const sub = event.payload.subscription.entity;
 
@@ -172,16 +261,15 @@ async function handleWebhook(rawBody, signature) {
         );
 
         if (result.rowCount > 0) {
-          const { user_id, current_period_end } = result.rows[0];
-          logger.info('Webhook: subscription cancelled — Pro access until period end', {
-            userId: user_id,
-            accessUntil: current_period_end,
+          logger.info('Webhook: subscription cancelled — Pro kept until period end', {
+            userId:      result.rows[0].user_id,
+            accessUntil: result.rows[0].current_period_end,
           });
         }
         break;
       }
 
-      // ── Subscription fully expired (period ended after cancel) ────────────
+      // ── Fully expired after cancel ────────────────────────────────────────
       case 'subscription.expired': {
         const sub = event.payload.subscription.entity;
 
@@ -204,10 +292,7 @@ async function handleWebhook(rawBody, signature) {
         break;
       }
 
-      // ── Payment failed — subscription halted ──────────────────────────────
-      // FIX: Previously only set status='past_due' but left plan='pro'.
-      // Now immediately downgrades to free. Razorpay halts after retries fail,
-      // so there's no point keeping Pro access at this stage.
+      // ── Halted (payment failed after retries) → immediate downgrade ───────
       case 'subscription.halted': {
         const sub = event.payload.subscription.entity;
 
@@ -223,24 +308,19 @@ async function handleWebhook(rawBody, signature) {
         );
 
         if (result.rowCount > 0) {
-          logger.warn('Webhook: subscription halted (payment failed) — downgraded to free', {
+          logger.warn('Webhook: subscription halted — downgraded to free', {
             userId: result.rows[0].user_id,
           });
         }
         break;
       }
 
-      // ── Individual payment failed (fired before halted, during retries) ───
-      // FIX: Was completely unhandled. Set status to past_due but keep plan
-      // for now — Razorpay will retry. Only fully downgrade on 'halted'.
+      // ── Individual payment failed (retries still pending) → mark past_due ─
       case 'payment.failed': {
         const payment = event.payload.payment?.entity;
-        const subId = payment?.subscription_id;
+        const subId   = payment?.subscription_id;
 
-        if (!subId) {
-          logger.warn('payment.failed: no subscription_id in payload');
-          break;
-        }
+        if (!subId) { logger.warn('payment.failed: no subscription_id'); break; }
 
         const result = await query(
           `UPDATE subscription_status
@@ -254,7 +334,7 @@ async function handleWebhook(rawBody, signature) {
 
         if (result.rowCount > 0) {
           logger.warn('Webhook: payment failed — marked past_due (Razorpay will retry)', {
-            userId: result.rows[0].user_id,
+            userId:    result.rows[0].user_id,
             paymentId: payment?.id,
           });
         }
@@ -272,7 +352,8 @@ async function handleWebhook(rawBody, signature) {
   }
 }
 
-// ─── Portal (Razorpay has no hosted portal — send to dashboard) ──────────────
+// ─── Portal ───────────────────────────────────────────────────────────────────
+// Razorpay has no hosted portal — redirect to in-app subscription management.
 
 async function createPortalSession(userId) {
   return { url: `${process.env.FRONTEND_URL}/dashboard?manage=subscription` };
@@ -290,19 +371,16 @@ async function getSubscriptionStatus(userId) {
     if (!result.rows[0]) return { plan: 'free', status: 'active', isPro: false };
 
     const row = result.rows[0];
-
-    // Grace period check: if cancelled but period hasn't ended yet, still treat as Pro
     const inGracePeriod =
       row.status === 'canceled' &&
       row.current_period_end &&
       new Date(row.current_period_end) > new Date();
 
-    const isPro =
-      (row.plan === 'pro' && row.status === 'active') || inGracePeriod;
+    const isPro = (row.plan === 'pro' && row.status === 'active') || inGracePeriod;
 
     return {
-      plan: row.plan,
-      status: row.status,
+      plan:             row.plan,
+      status:           row.status,
       currentPeriodEnd: row.current_period_end,
       isPro,
       inGracePeriod,

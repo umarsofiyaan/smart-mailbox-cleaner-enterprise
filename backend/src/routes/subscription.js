@@ -1,6 +1,6 @@
 // src/routes/subscription.js
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const {
@@ -14,16 +14,17 @@ const logger = require('../utils/logger');
 
 /**
  * POST /subscription/checkout
- * Create a Razorpay subscription for Pro plan.
+ * Body: { planId?: string }  — one of the 4 Razorpay plan IDs.
  */
 router.post('/checkout', requireAuth, async (req, res) => {
+  const { planId } = req.body;
   try {
     const checkoutData = await createCheckoutSession(
       req.user.id,
       req.user.email,
-      req.user.displayName
+      req.user.displayName,
+      planId
     );
-
     return res.json(checkoutData);
   } catch (err) {
     logger.error('Razorpay checkout creation failed', err);
@@ -33,7 +34,6 @@ router.post('/checkout', requireAuth, async (req, res) => {
 
 /**
  * POST /subscription/verify
- * Called after Razorpay frontend payment success to verify + activate.
  */
 router.post('/verify', requireAuth, async (req, res) => {
   const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
@@ -52,21 +52,19 @@ router.post('/verify', requireAuth, async (req, res) => {
 
 /**
  * POST /subscription/portal
- * Create a Razorpay Customer Portal session.
  */
 router.post('/portal', requireAuth, async (req, res) => {
   try {
     const { url } = await createPortalSession(req.user.id);
     return res.json({ url });
   } catch (err) {
-    logger.error('Razorpay portal session creation failed', err);
+    logger.error('Portal session creation failed', err);
     return res.status(500).json({ error: err.message || 'Failed to open billing portal.' });
   }
 });
 
 /**
  * GET /subscription/status
- * Get current subscription status for the user.
  */
 router.get('/status', requireAuth, async (req, res) => {
   try {
@@ -79,23 +77,47 @@ router.get('/status', requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /subscription/cancel
+ */
+router.post('/cancel', requireAuth, async (req, res) => {
+  const { query } = require('../config/database');
+  try {
+    const result = await query(
+      'SELECT stripe_subscription_id FROM subscription_status WHERE user_id = $1',
+      [req.user.id]
+    );
+    if (!result.rows[0]?.stripe_subscription_id) {
+      return res.status(404).json({ error: 'No active subscription found.' });
+    }
+    const subId = result.rows[0].stripe_subscription_id;
+    const Razorpay = require('razorpay');
+    const razorpay = new Razorpay({
+      key_id:     process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+    await razorpay.subscriptions.cancel(subId, { cancel_at_cycle_end: 1 });
+    await query(
+      "UPDATE subscription_status SET status='canceled', updated_at=NOW() WHERE user_id=$1",
+      [req.user.id]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('Cancel subscription failed', err);
+    return res.status(500).json({ error: err.message || 'Cancellation failed.' });
+  }
+});
+
+/**
  * POST /subscription/webhook
- * Razorpay webhook endpoint.
- * IMPORTANT: Uses raw body (must be before express.json() in middleware chain).
- * Verify signature before processing any event.
  */
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
-
-  if (!signature) {
-    return res.status(400).json({ error: 'Missing Razorpay signature.' });
-  }
-
+  if (!signature) return res.status(400).json({ error: 'Missing Razorpay signature.' });
   try {
     await handleWebhook(req.body, signature);
     return res.json({ received: true });
   } catch (err) {
-    logger.error('Razorpay webhook processing failed', err);
+    logger.error('Webhook processing failed', err);
     return res.status(400).json({ error: err.message });
   }
 });
