@@ -391,10 +391,50 @@ async function getSubscriptionStatus(userId) {
   }
 }
 
+// ─── Cancel Subscription (admin-initiated) ────────────────────────────────────
+// Cancels the Razorpay subscription immediately and downgrades DB to free.
+// cancel_at_cycle_end = false means cancel NOW (not at period end).
+
+async function cancelSubscription(userId) {
+  const result = await query(
+    `SELECT stripe_subscription_id, current_period_end
+     FROM subscription_status WHERE user_id = $1`,
+    [userId]
+  );
+
+  const row = result.rows[0];
+  const subscriptionId = row?.stripe_subscription_id;
+
+  // Cancel on Razorpay if there's a real subscription ID
+  if (subscriptionId && !subscriptionId.startsWith('plan_')) {
+    try {
+      await razorpay.subscriptions.cancel(subscriptionId, false);
+      logger.info('Razorpay subscription cancelled by admin', { userId, subscriptionId });
+    } catch (err) {
+      // Log but don't throw — still downgrade DB even if Razorpay call fails
+      // (subscription may already be cancelled/expired on Razorpay side)
+      logger.warn('Razorpay cancel call failed (proceeding with DB downgrade)', {
+        userId, subscriptionId, err: err.message,
+      });
+    }
+  }
+
+  // Always downgrade DB regardless of Razorpay outcome
+  await query(
+    `UPDATE subscription_status
+     SET plan = 'free', status = 'canceled', updated_at = NOW()
+     WHERE user_id = $1`,
+    [userId]
+  );
+
+  return { cancelled: true, subscriptionId };
+}
+
 module.exports = {
   createCheckoutSession,
   verifyAndActivatePayment,
   createPortalSession,
   handleWebhook,
   getSubscriptionStatus,
+  cancelSubscription,
 };

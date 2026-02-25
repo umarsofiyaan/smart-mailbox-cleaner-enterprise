@@ -8,6 +8,7 @@ const { query }          = require('../config/database');
 const { requireAuth }    = require('../middleware/auth');
 const { adminSetQuota, getQuotaSummary } = require('../services/quotaService');
 const { revokeAllTokens, deleteUserTokens } = require('../services/tokenService');
+const { cancelSubscription } = require('../services/stripeService');
 const logger = require('../utils/logger');
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -146,17 +147,23 @@ router.patch('/users/:userId/subscription', async (req, res) => {
 
   try {
     const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
-    const currentPeriodEnd = plan === 'pro'
-      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      : null;
 
-    await query(
-      `INSERT INTO subscription_status (user_id, plan, status, current_period_end)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id) DO UPDATE
-       SET plan = $2, status = $3, current_period_end = $4, updated_at = NOW()`,
-      [userId, plan, status || 'active', currentPeriodEnd]
-    );
+    if (plan === 'free') {
+      // ── Remove Pro: cancel on Razorpay AND downgrade DB ──────────────────
+      // This prevents Razorpay webhooks from re-activating the user after removal.
+      await cancelSubscription(userId);
+    } else {
+      // ── Grant Pro manually (no Razorpay subscription created) ────────────
+      const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await query(
+        `INSERT INTO subscription_status (user_id, plan, status, current_period_end)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE
+         SET plan = $2, status = $3, current_period_end = $4, updated_at = NOW()`,
+        [userId, plan, status || 'active', currentPeriodEnd]
+      );
+    }
+
     await writeAudit(req.user.id, req.user.email, 'set_subscription', userId, target.rows[0]?.email, { plan, status });
     return res.json({ success: true });
   } catch (err) {
