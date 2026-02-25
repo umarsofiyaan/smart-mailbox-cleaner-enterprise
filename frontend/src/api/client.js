@@ -69,10 +69,12 @@ export const authApi = {
 };
 
 export const scanApi = {
-  startScan:      (scanDepth = '12months') => api.post('/scan/start', { scanDepth }),
-  getScan:        (scanId)                 => api.get(`/scan/${scanId}`),
-  getLatestScan:  ()                       => api.get('/scan/user/latest'),
-  getScanHistory: ()                       => api.get('/scan/user/history'),
+  startScan:         (scanDepth = '12months') => api.post('/scan/start', { scanDepth }),
+  startCustomScan:   (params)                 => api.post('/scan/start-custom', params),
+  previewCustomScan: (params)                 => api.post('/scan/preview-custom', params),
+  getScan:           (scanId)                 => api.get(`/scan/${scanId}`),
+  getLatestScan:     ()                       => api.get('/scan/user/latest'),
+  getScanHistory:    ()                       => api.get('/scan/user/history'),
 };
 
 export const cleanupApi = {

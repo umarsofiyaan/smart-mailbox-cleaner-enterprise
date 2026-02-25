@@ -7,7 +7,7 @@
 //   3. Scan expiry — delete completed scans older than 90 days (daily)
 
 const { query }       = require('../config/database');
-const { runScan }     = require('../services/scanEngine');
+const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
 const logger          = require('../utils/logger');
 
@@ -74,6 +74,11 @@ async function executeJob(job) {
     const tokens = await getOAuthTokens(job.user_id);
     await query("UPDATE scans SET status='running' WHERE id=$1", [scanId]);
     await runScan(scanId, job.user_id, tokens, scanDepth || '12months');
+  } else if (job.job_type === 'CUSTOM_SCAN') {
+    const { scanId, customQuery } = job.payload;
+    const tokens = await getOAuthTokens(job.user_id);
+    await query("UPDATE scans SET status='running' WHERE id=$1", [scanId]);
+    await runCustomScan(scanId, job.user_id, tokens, customQuery);
   } else {
     throw new Error(`Unknown job type: ${job.job_type}`);
   }

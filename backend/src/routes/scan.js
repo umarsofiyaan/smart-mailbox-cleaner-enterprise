@@ -8,7 +8,7 @@ const { requirePro } = require('../middleware/requirePro');
 const { scanLimiter } = require('../middleware/security');
 const { query } = require('../config/database');
 const { getOAuthTokens } = require('../services/tokenService');
-const { runScan } = require('../services/scanEngine');
+const { runScan, runCustomScan } = require('../services/scanEngine');
 const { enqueueScan } = require('../jobs/worker');
 const logger = require('../utils/logger');
 
@@ -181,6 +181,111 @@ router.get('/user/history', requireAuth, async (req, res) => {
       startedAt: s.started_at,
       completedAt: s.completed_at,
     })),
+  });
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Build a Gmail search query from custom scan params.
+ * Mirrors the logic in frontend CustomScanBuilder.jsx buildQueryPreview().
+ */
+function buildCustomQuery(params) {
+  const parts = [];
+  if (params.sizeMin)   parts.push(`larger:${params.sizeMin}`);
+  if (params.olderThan) parts.push(`older_than:${params.olderThan}`);
+  if (params.dateFrom)  parts.push(`after:${String(params.dateFrom).replace(/-/g, '/')}`);
+  if (params.dateTo)    parts.push(`before:${String(params.dateTo).replace(/-/g, '/')}`);
+  if (params.category && params.category !== 'all') parts.push(`category:${params.category}`);
+  if (params.hasType === 'attachment')     parts.push('has:attachment');
+  else if (params.hasType === 'drive')     parts.push('has:drive');
+  else if (params.hasType === 'calendar')  parts.push('filename:invite.ics');
+  else if (params.hasType === 'no_attachment') parts.push('-has:attachment');
+  if (params.fromFilter?.trim())     parts.push(`from:${params.fromFilter.trim()}`);
+  if (params.subjectFilter?.trim())  parts.push(`subject:(${params.subjectFilter.trim()})`);
+  if (params.readStatus === 'read')   parts.push('is:read');
+  else if (params.readStatus === 'unread') parts.push('is:unread');
+  if (params.excludeStarred !== false) parts.push('-is:starred');
+  if (params.location === 'inbox') parts.push('in:inbox');
+  else if (params.location === 'sent') parts.push('in:sent');
+  parts.push('-in:trash -in:spam');
+  return parts.join(' ');
+}
+
+/**
+ * POST /scan/preview-custom
+ * Estimate how many emails match the custom query (for live count in UI).
+ * Pro only.
+ */
+router.post('/preview-custom', requireAuth, requirePro, async (req, res) => {
+  try {
+    const tokens = await getOAuthTokens(req.user.id);
+    const { listMessages } = require('../services/gmailService');
+    const { getGmailClient } = require('../services/gmailService');
+
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
+    const q = buildCustomQuery(req.body);
+
+    // Fetch up to 500 for a quick estimate (avoid full traversal)
+    const response = await gmail.users.messages.list({
+      userId: 'me',
+      q,
+      maxResults: 500,
+      fields: 'resultSizeEstimate,nextPageToken',
+    });
+
+    const estimate = response.data.resultSizeEstimate || 0;
+    return res.json({ estimate, query: q });
+  } catch (err) {
+    logger.error('Custom scan preview failed', { err: err.message });
+    return res.status(500).json({ error: 'Preview failed.', estimate: null });
+  }
+});
+
+/**
+ * POST /scan/start-custom
+ * Start a custom-filtered scan. Pro only.
+ */
+router.post('/start-custom', requireAuth, requirePro, scanLimiter, async (req, res) => {
+  const userId = req.user.id;
+
+  // Check for already-running scan
+  const runningCheck = await query(
+    "SELECT id FROM scans WHERE user_id = $1 AND status IN ('pending','running') ORDER BY started_at DESC LIMIT 1",
+    [userId]
+  );
+  if (runningCheck.rows.length > 0) {
+    return res.status(409).json({
+      error: 'A scan is already in progress.',
+      scanId: runningCheck.rows[0].id,
+    });
+  }
+
+  const q = buildCustomQuery(req.body);
+  if (!q.replace('-in:trash -in:spam', '').trim()) {
+    return res.status(400).json({ error: 'Please set at least one filter.' });
+  }
+
+  // Create scan record (store custom query in scan_depth field for reference)
+  const scanId = uuidv4();
+  await query(
+    `INSERT INTO scans (id, user_id, status, scan_depth) VALUES ($1, $2, 'pending', $3)`,
+    [scanId, userId, 'custom']
+  );
+
+  // Enqueue custom scan job
+  await query(
+    `INSERT INTO jobs (user_id, job_type, payload, status) VALUES ($1, 'CUSTOM_SCAN', $2, 'queued')`,
+    [userId, JSON.stringify({ scanId, customQuery: q })]
+  );
+
+  logger.info('Custom scan queued', { scanId, userId, query: q });
+
+  return res.status(202).json({
+    scanId,
+    query: q,
+    status: 'pending',
+    message: 'Custom scan started. Poll /scan/:scanId for results.',
   });
 });
 

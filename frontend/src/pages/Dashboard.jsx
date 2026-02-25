@@ -50,14 +50,17 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  return (
-    <div className="relative flex items-center" ref={ref}>
+  const btnBase = 'h-11 flex items-center justify-center text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm';
 
-      {/* Primary button */}
+  return (
+    <div className="relative flex items-stretch rounded-xl overflow-hidden shadow-sm" ref={ref}>
+
+      {/* Primary action — equal height via h-11 on both */}
       <button
         onClick={onQuickScan}
         disabled={isRunning}
-        className="flex items-center gap-2 bg-brand-600 text-white font-semibold px-5 py-2.5 rounded-l-xl hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm border-r border-brand-900/40"
+        className={`${btnBase} gap-2 bg-brand-600 hover:bg-brand-700 px-5 border-r border-brand-900/30`}
+        style={{ borderRadius: 0 }}
       >
         {isRunning ? (
           <>
@@ -69,12 +72,13 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
         )}
       </button>
 
-      {/* Chevron — visibly darker shade so user knows it's a separate control */}
+      {/* Chevron — same height, same visual weight */}
       <button
         onClick={() => setDropOpen(v => !v)}
         disabled={isRunning}
         aria-label="More scan options"
-        className="flex items-center justify-center bg-brand-800 text-white px-4 py-2.5 rounded-r-xl hover:bg-brand-900 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+        className={`${btnBase} bg-brand-600 hover:bg-brand-700 px-3.5`}
+        style={{ borderRadius: 0 }}
       >
         <svg
           className={`w-4 h-4 transition-transform duration-150 ${dropOpen ? 'rotate-180' : ''}`}

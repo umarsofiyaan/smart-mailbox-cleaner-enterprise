@@ -63,8 +63,10 @@ const LOCATION_OPTIONS = [
 
 function buildQueryPreview(params) {
   const parts = [];
-  if (params.sizeMin)    parts.push(`larger:${params.sizeMin}`);
-  if (params.olderThan)  parts.push(`older_than:${params.olderThan}`);
+  if (params.sizeMin)   parts.push(`larger:${params.sizeMin}`);
+  if (params.olderThan) parts.push(`older_than:${params.olderThan}`);
+  if (params.dateFrom)  parts.push(`after:${params.dateFrom.replace(/-/g, '/')}`);
+  if (params.dateTo)    parts.push(`before:${params.dateTo.replace(/-/g, '/')}`);
   if (params.category && params.category !== 'all') parts.push(`category:${params.category}`);
   if (params.hasType === 'attachment')    parts.push('has:attachment');
   else if (params.hasType === 'drive')    parts.push('has:drive');
@@ -85,6 +87,8 @@ function hasAnyFilter(params) {
   return !!(
     params.sizeMin ||
     params.olderThan ||
+    params.dateFrom ||
+    params.dateTo ||
     (params.category && params.category !== 'all') ||
     (params.hasType && params.hasType !== 'any') ||
     params.fromFilter?.trim() ||
@@ -184,25 +188,25 @@ const PRESETS = [
     icon: '📎',
     label: 'Big attachments',
     desc: '10 MB+ files',
-    params: { sizeMin: '10M', olderThan: '', hasType: 'attachment', category: 'all', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
+    params: { sizeMin: '10M', olderThan: '', dateFrom: '', dateTo: '', hasType: 'attachment', category: 'all', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
   },
   {
     icon: '🏷️',
     label: 'Old promotions',
     desc: '1 year+ old',
-    params: { sizeMin: '', olderThan: '1y', hasType: 'any', category: 'promotions', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
+    params: { sizeMin: '', olderThan: '1y', dateFrom: '', dateTo: '', hasType: 'any', category: 'promotions', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
   },
   {
     icon: '👥',
     label: 'Old social',
     desc: '6 months+ old',
-    params: { sizeMin: '', olderThan: '180d', hasType: 'any', category: 'social', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
+    params: { sizeMin: '', olderThan: '180d', dateFrom: '', dateTo: '', hasType: 'any', category: 'social', readStatus: 'all', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
   },
   {
     icon: '📖',
     label: 'Read + old',
     desc: '2 years+ old',
-    params: { sizeMin: '', olderThan: '2y', hasType: 'any', category: 'all', readStatus: 'read', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
+    params: { sizeMin: '', olderThan: '2y', dateFrom: '', dateTo: '', hasType: 'any', category: 'all', readStatus: 'read', location: 'all', fromFilter: '', subjectFilter: '', excludeStarred: true },
   },
 ];
 
@@ -211,6 +215,8 @@ const PRESETS = [
 const DEFAULT_PARAMS = {
   sizeMin:       '',
   olderThan:     '',
+  dateFrom:      '',   // ISO date string YYYY-MM-DD
+  dateTo:        '',   // ISO date string YYYY-MM-DD
   category:      'all',
   hasType:       'any',
   fromFilter:    '',
@@ -365,8 +371,52 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, isScanning
                 <Select value={params.sizeMin} onChange={v => setParam('sizeMin', v)} options={SIZE_OPTIONS} />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1.5">Age</label>
-                <Select value={params.olderThan} onChange={v => setParam('olderThan', v)} options={DATE_OPTIONS} />
+                <label className="block text-xs text-gray-500 mb-1.5">Age (older than)</label>
+                <Select
+                  value={params.olderThan}
+                  onChange={v => setParam('olderThan', v)}
+                  options={DATE_OPTIONS}
+                  disabled={!!(params.dateFrom || params.dateTo)}
+                />
+              </div>
+            </div>
+
+            {/* Date range row */}
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <label className="text-xs text-gray-500">Or use a specific date range</label>
+                {(params.dateFrom || params.dateTo) && (
+                  <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-medium">Active — Age filter disabled</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">From date</label>
+                  <input
+                    type="date"
+                    value={params.dateFrom}
+                    max={params.dateTo || new Date().toISOString().split('T')[0]}
+                    onChange={e => {
+                      setParam('dateFrom', e.target.value);
+                      if (e.target.value) setParam('olderThan', '');
+                    }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent hover:border-gray-300 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">To date</label>
+                  <input
+                    type="date"
+                    value={params.dateTo}
+                    min={params.dateFrom || undefined}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={e => {
+                      setParam('dateTo', e.target.value);
+                      if (e.target.value) setParam('olderThan', '');
+                    }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent hover:border-gray-300 transition-colors"
+                  />
+                </div>
               </div>
             </div>
           </div>

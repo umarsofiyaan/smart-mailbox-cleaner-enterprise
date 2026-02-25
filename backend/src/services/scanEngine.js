@@ -250,6 +250,92 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
 }
 
 /**
+ * Run a custom-query scan for a single user-defined Gmail filter.
+ * Produces one category result ("Custom Filter") instead of the 7 preset categories.
+ */
+async function runCustomScan(scanId, userId, tokens, customQuery) {
+  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
+
+  try {
+    await query("UPDATE scans SET status = 'running', started_at = NOW() WHERE id = $1", [scanId]);
+
+    // Get storage quota
+    let storageInfo;
+    try {
+      storageInfo = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
+    } catch {
+      storageInfo = { storageUsedBytes: 0, storageQuotaBytes: 15 * 1024 * 1024 * 1024 };
+    }
+
+    logger.info('Running custom scan', { scanId, userId, query: customQuery });
+
+    // Collect message IDs matching the custom query
+    let messageIds;
+    try {
+      messageIds = await collectMessageIds(gmail, customQuery, 2000);
+    } catch (err) {
+      logger.warn('Custom scan: failed to list messages', { err: err.message });
+      messageIds = [];
+    }
+
+    let totalFreeableBytes = 0;
+    let categoryResults = [];
+
+    if (messageIds.length > 0) {
+      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, 500));
+      const threadCounts = new Map();
+      for (const msg of metadata) {
+        threadCounts.set(msg.threadId, (threadCounts.get(msg.threadId) || 0) + 1);
+      }
+      const scored = scoreCategory(metadata, 'custom_filter', threadCounts);
+      totalFreeableBytes = scored.totalBytes;
+      categoryResults = [{
+        key: 'custom_filter',
+        label: 'Custom Filter',
+        description: `Matched by: ${customQuery}`,
+        icon: 'AdjustmentsIcon',
+        color: 'indigo',
+        ...scored,
+      }];
+    }
+
+    const confidenceSummary = buildConfidenceSummary(categoryResults);
+
+    await query(
+      `UPDATE scans SET
+         status = 'complete',
+         storage_used_bytes = $1,
+         storage_quota_bytes = $2,
+         storage_growth_daily_bytes = 0,
+         categories_json = $3,
+         confidence_summary = $4,
+         estimated_bytes_freeable = $5,
+         total_messages_scanned = $6,
+         completed_at = NOW()
+       WHERE id = $7`,
+      [
+        storageInfo.storageUsedBytes,
+        storageInfo.storageQuotaBytes,
+        JSON.stringify(categoryResults),
+        JSON.stringify(confidenceSummary),
+        totalFreeableBytes,
+        messageIds.length,
+        scanId,
+      ]
+    );
+
+    logger.info('Custom scan complete', { scanId, matches: messageIds.length });
+  } catch (err) {
+    logger.error('Custom scan failed', err, { scanId });
+    await query(
+      "UPDATE scans SET status = 'failed', error_message = $1, completed_at = NOW() WHERE id = $2",
+      [err.message, scanId]
+    );
+    throw err;
+  }
+}
+
+/**
  * Get the most recent completed scan for delta storage calculation
  */
 async function getPreviousScan(userId, currentScanId) {
@@ -295,4 +381,4 @@ function buildConfidenceSummary(categoryResults) {
   return summary;
 }
 
-module.exports = { runScan, CATEGORY_QUERIES };
+module.exports = { runScan, runCustomScan, CATEGORY_QUERIES };
