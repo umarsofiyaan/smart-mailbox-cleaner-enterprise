@@ -250,12 +250,16 @@ export default function Admin() {
   const { user }  = useAuth();
   const navigate  = useNavigate();
 
-  const [stats,    setStats]    = useState(null);
-  const [allUsers, setAllUsers] = useState([]);
-  const [search,   setSearch]   = useState('');
-  const [loading,  setLoading]  = useState(true);
-  const [checking, setChecking] = useState(true);
-  const [isAdmin,  setIsAdmin]  = useState(false);
+  const [stats,        setStats]        = useState(null);
+  const [allUsers,     setAllUsers]     = useState([]);
+  const [deletedUsers, setDeletedUsers] = useState([]);
+  const [auditLog,     setAuditLog]     = useState([]);
+  const [search,       setSearch]       = useState('');
+  const [loading,      setLoading]      = useState(true);
+  const [checking,     setChecking]     = useState(true);
+  const [isAdmin,      setIsAdmin]      = useState(false);
+  const [showDeleted,  setShowDeleted]  = useState(false);
+  const [showAudit,    setShowAudit]    = useState(true);
 
   useEffect(() => {
     async function checkAdmin() {
@@ -273,12 +277,17 @@ export default function Admin() {
     if (!isAdmin) return;
     setLoading(true);
     try {
-      const [statsRes, usersRes] = await Promise.all([
+      const [statsRes, usersRes, deletedRes, auditRes] = await Promise.all([
         api.get('/admin/stats'),
         api.get('/admin/users', { params: { limit: 500, offset: 0 } }),
+        api.get('/admin/users', { params: { limit: 200, offset: 0, includeDeleted: 'true' } }),
+        api.get('/admin/audit', { params: { limit: 50, offset: 0 } }),
       ]);
       setStats(statsRes.data);
       setAllUsers(usersRes.data.users || []);
+      // Only keep actually-deleted users (deleted_at is not null)
+      setDeletedUsers((deletedRes.data.users || []).filter(u => u.deleted_at));
+      setAuditLog(auditRes.data.log || []);
     } catch (err) {
       console.error('Admin load failed', err);
     } finally {
@@ -377,6 +386,111 @@ export default function Admin() {
                 {search ? 'No users match your search.' : 'No users found.'}
               </div>
             )}
+
+            {/* ── Deleted Users ──────────────────────────────────────────────────── */}
+            {deletedUsers.length > 0 && (
+              <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden mb-6">
+                <button
+                  onClick={() => setShowDeleted(v => !v)}
+                  className="w-full flex items-center justify-between px-5 py-3.5 border-b border-red-50 hover:bg-red-50/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🗑️</span>
+                    <h3 className="font-bold text-gray-800 text-sm">Deleted Users</h3>
+                    <span className="bg-red-100 text-red-500 text-xs font-medium px-2 py-0.5 rounded-full">{deletedUsers.length}</span>
+                    <span className="text-xs text-gray-400 ml-1">— sessions revoked, read-only view</span>
+                  </div>
+                  <span className="text-gray-400 text-xs">{showDeleted ? '▲' : '▼'}</span>
+                </button>
+                {showDeleted && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-red-50/40 border-b border-red-50">
+                          {['USER', 'EMAIL', 'JOINED', 'DELETED ON', 'SCANS', 'CLEANUPS'].map(h => (
+                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deletedUsers.map(u => (
+                          <tr key={u.id} className="border-b border-gray-50 opacity-70">
+                            <td className="px-4 py-3">
+                              <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 font-bold text-sm">
+                                {(u.display_name || u.email || '?')[0].toUpperCase()}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <p className="text-xs text-gray-600 line-through">{u.display_name || '—'}</p>
+                              <p className="text-xs text-gray-400">{u.email}</p>
+                            </td>
+                            <td className="px-3 py-3 text-xs text-gray-400">{formatDate(u.created_at)}</td>
+                            <td className="px-3 py-3 text-xs text-red-400">{formatDate(u.deleted_at)}</td>
+                            <td className="px-3 py-3 text-xs text-gray-400">{u.scan_count || 0}</td>
+                            <td className="px-3 py-3 text-xs text-gray-400">{u.cleanup_count || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Audit Log ──────────────────────────────────────────────────── */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
+              <button
+                onClick={() => setShowAudit(v => !v)}
+                className="w-full flex items-center justify-between px-5 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📋</span>
+                  <h3 className="font-bold text-gray-800 text-sm">Admin Audit Log</h3>
+                  <span className="bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">{auditLog.length}</span>
+                </div>
+                <span className="text-gray-400 text-xs">{showAudit ? '▲' : '▼'}</span>
+              </button>
+              {showAudit && (
+                auditLog.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 text-sm">No admin actions recorded yet.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50/60 border-b border-gray-100">
+                          {['WHEN', 'ADMIN', 'ACTION', 'TARGET USER', 'DETAIL'].map(h => (
+                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLog.map(entry => (
+                          <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50/40">
+                            <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{formatDate(entry.created_at)}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600">{entry.admin_email || '—'}</td>
+                            <td className="px-3 py-2.5">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                entry.action === 'delete_user'       ? 'bg-red-50 text-red-600'     :
+                                entry.action === 'set_subscription'  ? 'bg-indigo-50 text-indigo-600':
+                                entry.action === 'set_role'          ? 'bg-amber-50 text-amber-600' :
+                                entry.action === 'restore_user'      ? 'bg-green-50 text-green-600' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>
+                                {entry.action.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-gray-500">{entry.target_email || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-400 font-mono">
+                              {entry.detail ? JSON.stringify(entry.detail).replace(/[{}"]/g, '').slice(0, 60) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
           </>
         )}
       </main>

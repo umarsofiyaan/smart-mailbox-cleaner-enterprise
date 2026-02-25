@@ -27,12 +27,12 @@ router.use(requireAuth, requireAdmin);
 
 // ─── Audit log helper ─────────────────────────────────────────────────────────
 
-async function writeAudit(adminId, action, targetUserId, details = {}) {
+async function writeAudit(adminId, adminEmail, action, targetUserId, targetEmail, details = {}) {
   try {
     await query(
-      `INSERT INTO admin_audit_log (admin_id, action, target_user_id, details)
-       VALUES ($1, $2, $3, $4)`,
-      [adminId, action, targetUserId, JSON.stringify(details)]
+      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, detail)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [adminId, adminEmail || null, action, targetUserId || null, targetEmail || null, JSON.stringify(details)]
     );
   } catch (err) {
     logger.warn('Failed to write audit log', { err: err.message, action, targetUserId });
@@ -115,11 +115,12 @@ router.patch('/users/:userId/role', async (req, res) => {
   }
 
   try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
     await query(
       'UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2',
       [isAdmin, userId]
     );
-    await writeAudit(req.user.id, 'set_role', userId, { isAdmin });
+    await writeAudit(req.user.id, req.user.email, 'set_role', userId, target.rows[0]?.email, { isAdmin });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update role', err, { userId });
@@ -144,6 +145,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
   }
 
   try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
     const currentPeriodEnd = plan === 'pro'
       ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       : null;
@@ -155,7 +157,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
        SET plan = $2, status = $3, current_period_end = $4, updated_at = NOW()`,
       [userId, plan, status || 'active', currentPeriodEnd]
     );
-    await writeAudit(req.user.id, 'set_subscription', userId, { plan, status });
+    await writeAudit(req.user.id, req.user.email, 'set_subscription', userId, target.rows[0]?.email, { plan, status });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update subscription', err, { userId });
@@ -170,8 +172,9 @@ router.patch('/users/:userId/quota', async (req, res) => {
   const { lifetimeAllowance = 500, lifetimeUsed = 0, dailyAllowance = 50 } = req.body;
 
   try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
     await adminSetQuota(userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
-    await writeAudit(req.user.id, 'set_quota', userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
+    await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update quota', err, { userId });
@@ -180,9 +183,6 @@ router.patch('/users/:userId/quota', async (req, res) => {
 });
 
 // ─── DELETE /admin/users/:userId ──────────────────────────────────────────────
-// Soft-delete: sets deleted_at instead of hard DELETE.
-// CRITICAL FIX: revokes ALL active tokens FIRST so the user's sessions
-// die within seconds — they don't need to wait for token expiry.
 
 router.delete('/users/:userId', async (req, res) => {
   const { userId } = req.params;
@@ -192,11 +192,12 @@ router.delete('/users/:userId', async (req, res) => {
   }
 
   try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
+
     // 1. Revoke ALL JWT refresh tokens → next token refresh fails immediately
     await revokeAllTokens(userId);
 
-    // 2. Soft-delete the user row
-    //    (keeps data for audit; requireAuth now rejects deleted_at IS NOT NULL)
+    // 2. Soft-delete: keeps data for audit trail; requireAuth rejects deleted_at IS NOT NULL
     const result = await query(
       `UPDATE users
        SET deleted_at = NOW(), deleted_by = $2, updated_at = NOW()
@@ -209,16 +210,10 @@ router.delete('/users/:userId', async (req, res) => {
       return res.status(404).json({ error: 'User not found or already deleted.' });
     }
 
-    await writeAudit(req.user.id, 'delete_user', userId, { soft: true });
-    logger.info('Admin: user soft-deleted, all tokens revoked', {
-      adminId: req.user.id,
-      deletedUserId: userId,
-    });
+    await writeAudit(req.user.id, req.user.email, 'delete_user', userId, target.rows[0]?.email, { soft: true });
+    logger.info('Admin: user soft-deleted, all tokens revoked', { adminId: req.user.id, deletedUserId: userId });
 
-    return res.json({
-      success: true,
-      message: 'User deleted and all active sessions revoked.',
-    });
+    return res.json({ success: true, message: 'User deleted and all active sessions revoked.' });
   } catch (err) {
     logger.error('Admin: failed to delete user', err, { userId });
     return res.status(500).json({ error: 'Failed to delete user.' });
@@ -226,7 +221,6 @@ router.delete('/users/:userId', async (req, res) => {
 });
 
 // ─── PATCH /admin/users/:userId/restore ──────────────────────────────────────
-// Un-delete a soft-deleted user.
 
 router.patch('/users/:userId/restore', async (req, res) => {
   const { userId } = req.params;
@@ -244,7 +238,7 @@ router.patch('/users/:userId/restore', async (req, res) => {
       return res.status(404).json({ error: 'User not found or not deleted.' });
     }
 
-    await writeAudit(req.user.id, 'restore_user', userId);
+    await writeAudit(req.user.id, req.user.email, 'restore_user', userId, result.rows[0].email, {});
     logger.info('Admin: user restored', { adminId: req.user.id, restoredUserId: userId });
     return res.json({ success: true, user: result.rows[0] });
   } catch (err) {
@@ -260,12 +254,10 @@ router.get('/audit', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT al.id, al.action, al.details, al.created_at,
-              admin.email AS admin_email,
-              target.email AS target_email
+      `SELECT al.id, al.action, al.detail, al.created_at,
+              al.admin_email, al.target_email,
+              al.ip_address
        FROM admin_audit_log al
-       LEFT JOIN users admin  ON admin.id  = al.admin_id
-       LEFT JOIN users target ON target.id = al.target_user_id
        ORDER BY al.created_at DESC
        LIMIT $1 OFFSET $2`,
       [parseInt(limit), parseInt(offset)]
@@ -281,19 +273,21 @@ router.get('/audit', async (req, res) => {
 
 router.get('/stats', async (req, res) => {
   try {
-    const [users, proUsers, scans, cleanups] = await Promise.all([
+    const [users, proUsers, scans, cleanups, newUsers] = await Promise.all([
       query('SELECT COUNT(*) FROM users WHERE deleted_at IS NULL'),
       query("SELECT COUNT(*) FROM subscription_status WHERE plan = 'pro' AND status = 'active'"),
       query("SELECT COUNT(*) FROM scans WHERE status = 'complete'"),
       query("SELECT COUNT(*), COALESCE(SUM(bytes_freed),0) AS total_bytes FROM cleanup_actions WHERE status = 'complete'"),
+      query("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '7 days'"),
     ]);
 
     return res.json({
-      totalUsers:      parseInt(users.rows[0].count),
-      proUsers:        parseInt(proUsers.rows[0].count),
-      totalScans:      parseInt(scans.rows[0].count),
-      totalCleanups:   parseInt(cleanups.rows[0].count),
-      totalBytesFreed: parseInt(cleanups.rows[0].total_bytes),
+      totalUsers:        parseInt(users.rows[0].count),
+      proUsers:          parseInt(proUsers.rows[0].count),
+      totalScans:        parseInt(scans.rows[0].count),
+      totalCleanups:     parseInt(cleanups.rows[0].count),
+      totalBytesFreed:   parseInt(cleanups.rows[0].total_bytes),
+      newUsersThisWeek:  parseInt(newUsers.rows[0].count),
     });
   } catch (err) {
     logger.error('Admin: failed to fetch stats', err);

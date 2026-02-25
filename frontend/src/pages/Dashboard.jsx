@@ -53,40 +53,43 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
   const btnBase = 'h-11 flex items-center justify-center text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm';
 
   return (
-    <div className="relative flex items-stretch rounded-xl overflow-hidden shadow-sm" ref={ref}>
+    <div className="relative" ref={ref}>
+      {/* Button pair — overflow-hidden only here for rounded corners on the joined buttons */}
+      <div className="flex items-stretch rounded-xl overflow-hidden shadow-sm">
 
-      {/* Primary action — equal height via h-11 on both */}
-      <button
-        onClick={onQuickScan}
-        disabled={isRunning}
-        className={`${btnBase} gap-2 bg-brand-600 hover:bg-brand-700 px-5 border-r border-brand-900/30`}
-        style={{ borderRadius: 0 }}
-      >
-        {isRunning ? (
-          <>
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Scanning…
-          </>
-        ) : (
-          <>🔍 {status === 'complete' ? 'Re-scan' : 'Scan Mailbox'}</>
-        )}
-      </button>
-
-      {/* Chevron — same height, same visual weight */}
-      <button
-        onClick={() => setDropOpen(v => !v)}
-        disabled={isRunning}
-        aria-label="More scan options"
-        className={`${btnBase} bg-brand-600 hover:bg-brand-700 px-3.5`}
-        style={{ borderRadius: 0 }}
-      >
-        <svg
-          className={`w-4 h-4 transition-transform duration-150 ${dropOpen ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        {/* Primary action */}
+        <button
+          onClick={onQuickScan}
+          disabled={isRunning}
+          className={`${btnBase} gap-2 bg-brand-600 hover:bg-brand-700 px-5 border-r border-brand-900/30`}
+          style={{ borderRadius: 0 }}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+          {isRunning ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Scanning…
+            </>
+          ) : (
+            <>🔍 {status === 'complete' ? 'Re-scan' : 'Scan Mailbox'}</>
+          )}
+        </button>
+
+        {/* Chevron — same height, same visual weight */}
+        <button
+          onClick={() => setDropOpen(v => !v)}
+          disabled={isRunning}
+          aria-label="More scan options"
+          className={`${btnBase} bg-brand-600 hover:bg-brand-700 px-3.5`}
+          style={{ borderRadius: 0 }}
+        >
+          <svg
+            className={`w-4 h-4 transition-transform duration-150 ${dropOpen ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
 
       {/* Dropdown */}
       {dropOpen && (
