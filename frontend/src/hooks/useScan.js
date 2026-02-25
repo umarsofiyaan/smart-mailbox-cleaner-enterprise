@@ -6,9 +6,9 @@ const POLL_INTERVAL_MS = 3000;
 
 export function useScan() {
   const [scanId, setScanId] = useState(null);
-  const [scan, setScan] = useState(null);
+  const [scan,   setScan]   = useState(null);
   const [status, setStatus] = useState('idle'); // idle | starting | running | complete | failed
-  const [error, setError] = useState(null);
+  const [error,  setError]  = useState(null);
   const pollRef = useRef(null);
 
   const stopPolling = () => {
@@ -37,6 +37,8 @@ export function useScan() {
     }
   }, []);
 
+  // ── Quick scan ────────────────────────────────────────────────────────────
+
   const startScan = useCallback(async (scanDepth = '12months') => {
     setStatus('starting');
     setError(null);
@@ -49,9 +51,7 @@ export function useScan() {
       setScanId(newScanId);
       setStatus('running');
 
-      // Start polling
       pollRef.current = setInterval(() => pollScan(newScanId), POLL_INTERVAL_MS);
-      // Immediate first poll
       await pollScan(newScanId);
 
     } catch (err) {
@@ -60,6 +60,32 @@ export function useScan() {
       setStatus('failed');
     }
   }, [pollScan]);
+
+  // ── Custom scan ───────────────────────────────────────────────────────────
+
+  const startCustomScan = useCallback(async (params) => {
+    setStatus('starting');
+    setError(null);
+    setScan(null);
+    stopPolling();
+
+    try {
+      const response = await scanApi.startCustomScan(params);
+      const { scanId: newScanId, query } = response.data;
+      setScanId(newScanId);
+      setStatus('running');
+
+      pollRef.current = setInterval(() => pollScan(newScanId), POLL_INTERVAL_MS);
+      await pollScan(newScanId);
+
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Failed to start custom scan.';
+      setError(msg);
+      setStatus('failed');
+    }
+  }, [pollScan]);
+
+  // ── Load latest ──────────────────────────────────────────────────────────
 
   const loadLatestScan = useCallback(async () => {
     try {
@@ -70,7 +96,7 @@ export function useScan() {
       setScanId(latestId);
       setStatus('complete');
     } catch {
-      // No previous scan
+      // No previous scan — stays idle
     }
   }, []);
 
@@ -82,5 +108,5 @@ export function useScan() {
     setError(null);
   }, []);
 
-  return { scan, scanId, status, error, startScan, loadLatestScan, reset };
+  return { scan, scanId, status, error, startScan, startCustomScan, loadLatestScan, reset };
 }
