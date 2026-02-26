@@ -8,7 +8,6 @@ const { query }          = require('../config/database');
 const { requireAuth }    = require('../middleware/auth');
 const { adminSetQuota, getQuotaSummary } = require('../services/quotaService');
 const { revokeAllTokens, deleteUserTokens } = require('../services/tokenService');
-const { cancelSubscription } = require('../services/stripeService');
 const logger = require('../utils/logger');
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -149,11 +148,18 @@ router.patch('/users/:userId/subscription', async (req, res) => {
     const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
 
     if (plan === 'free') {
-      // ── Remove Pro: cancel on Razorpay AND downgrade DB ──────────────────
-      // This prevents Razorpay webhooks from re-activating the user after removal.
-      await cancelSubscription(userId);
+      // ── Admin override: immediate downgrade in DB (provider-agnostic) ────
+      // We intentionally avoid depending on Razorpay APIs from admin actions,
+      // so dashboard controls always work as a manual override layer.
+      await query(
+        `INSERT INTO subscription_status (user_id, plan, status, current_period_end)
+         VALUES ($1, 'free', $2, NULL)
+         ON CONFLICT (user_id) DO UPDATE
+         SET plan = 'free', status = $2, current_period_end = NULL, updated_at = NOW()`,
+        [userId, status || 'canceled']
+      );
     } else {
-      // ── Grant Pro manually (no Razorpay subscription created) ────────────
+      // ── Grant Pro manually (no provider subscription required) ───────────
       const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       await query(
         `INSERT INTO subscription_status (user_id, plan, status, current_period_end)
