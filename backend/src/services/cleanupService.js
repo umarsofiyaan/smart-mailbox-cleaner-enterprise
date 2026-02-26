@@ -8,7 +8,6 @@ const logger = require('../utils/logger');
 
 async function executeCleanup(userId, scanId, category, messageIds, estimatedBytes, tokens) {
   if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
-  if (messageIds.length > 5000) throw new Error('Maximum 5000 messages per cleanup action.');
 
   logger.info('Starting cleanup', { userId, category, messageCount: messageIds.length });
 

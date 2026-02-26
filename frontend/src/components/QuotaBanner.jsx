@@ -29,17 +29,12 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
 
   if (isPro || loading || !quota) return null;
 
-  const lifetimeUsed      = quota.lifetime?.used      ?? 0;
-  const lifetimeAllowance = quota.lifetime?.allowance  ?? 500;
-  const lifetimeRemaining = quota.lifetime?.remaining  ?? lifetimeAllowance;
+  const lifetimeUsed      = quota.lifetime?.used ?? 0;
+  const lifetimeAllowance = quota.lifetime?.allowance ?? 5000;
+  const lifetimeRemaining = quota.lifetime?.remaining ?? lifetimeAllowance;
   const lifetimePct       = Math.min(100, (lifetimeUsed / lifetimeAllowance) * 100);
 
-  const dailyUsed         = quota.daily?.used      ?? 0;
-  const dailyAllowance    = quota.daily?.allowance  ?? 50;
-  const dailyRemaining    = quota.daily?.remaining  ?? 0;
-  const dailyPct          = dailyAllowance ? Math.min(100, (dailyUsed / dailyAllowance) * 100) : 0;
-
-  const isExhausted = lifetimeRemaining === 0 && dailyRemaining === 0;
+  const isExhausted = lifetimeRemaining === 0;
   const isWarning   = !isExhausted && lifetimePct >= 80;   // 80–99%
 
   const theme = isExhausted
@@ -71,15 +66,14 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
             )}
           </div>
 
-          {/* Contextual sub-message */}
           {isExhausted && (
             <p className={`text-xs ${theme.sub}`}>
-              Lifetime credits used up. You get <strong>50 free credits/day</strong> now — or upgrade for unlimited.
+              You have used all <strong>5,000 free credits</strong>. Upgrade to Pro for unlimited cleanup.
             </p>
           )}
           {isWarning && (
             <p className={`text-xs ${theme.sub}`}>
-              <strong>{lifetimeRemaining} credits left</strong>. After that you get 50/day, or{' '}
+              <strong>{lifetimeRemaining} credits left</strong>.{' '}
               <button
                 onClick={() => navigate('/pricing')}
                 className="underline font-semibold hover:opacity-80"
@@ -93,7 +87,6 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
           )}
         </div>
 
-        {/* CTA button */}
         {theme.btnBg && (
           <button
             onClick={() => navigate('/pricing')}
@@ -104,12 +97,10 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
         )}
       </div>
 
-      {/* Progress bars */}
       <div className="space-y-2">
-        {/* Lifetime bar */}
         <div>
           <div className="flex justify-between text-xs mb-1">
-            <span className={theme.sub}>Lifetime: {lifetimeUsed}/{lifetimeAllowance}</span>
+            <span className={theme.sub}>Free: {lifetimeUsed}/{lifetimeAllowance}</span>
             <span className={theme.sub}>{lifetimeRemaining} remaining</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
@@ -119,22 +110,6 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
             />
           </div>
         </div>
-
-        {/* Daily bar — shown only after lifetime is exhausted */}
-        {lifetimeRemaining === 0 && (
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span className={theme.sub}>Today: {dailyUsed}/{dailyAllowance}</span>
-              <span className={theme.sub}>{dailyRemaining} remaining (resets midnight UTC)</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${theme.bar}`}
-                style={{ width: `${dailyPct}%` }}
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

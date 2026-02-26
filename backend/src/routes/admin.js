@@ -25,7 +25,7 @@ async function requireAdmin(req, res, next) {
 
 router.use(requireAuth, requireAdmin);
 
-// ─── Audit log helper ─────────────────────────────────────────────────────────
+// ─── Audit log helper ────────────────────────────────────────────────────────
 
 async function writeAudit(adminId, adminEmail, action, targetUserId, targetEmail, details = {}) {
   try {
@@ -128,7 +128,7 @@ router.patch('/users/:userId/role', async (req, res) => {
   }
 });
 
-// ─── PATCH /admin/users/:userId/subscription ──────────────────────────────────
+// ─── PATCH /admin/users/:userId/subscription ─────────────────────────────────
 
 router.patch('/users/:userId/subscription', async (req, res) => {
   const { userId }        = req.params;
@@ -182,7 +182,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
 
 router.patch('/users/:userId/quota', async (req, res) => {
   const { userId } = req.params;
-  const { lifetimeAllowance = 500, lifetimeUsed = 0, dailyAllowance = 50 } = req.body;
+  const { lifetimeAllowance = 5000, lifetimeUsed = 0, dailyAllowance = 0 } = req.body;
 
   try {
     const target = await query('SELECT email FROM users WHERE id = $1', [userId]);

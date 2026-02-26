@@ -1,5 +1,5 @@
 // src/services/quotaService.js
-// Free-tier quota enforcement: lifetime (500 emails) + daily (50/day after exhaustion)
+// Free-tier quota enforcement: lifetime (5000 emails).
 // Pro users bypass all quota checks.
 // Daily grant happens on login only (grantDailyQuotaOnLogin).
 
@@ -18,6 +18,20 @@ async function getQuota(userId) {
     );
 
     if (result.rows.length > 0) {
+      // Keep legacy accounts aligned with the current free-tier defaults.
+      if ((result.rows[0].lifetime_allowance || 0) < 5000 || (result.rows[0].daily_allowance || 0) !== 0) {
+        await query(
+          `UPDATE user_quota
+           SET lifetime_allowance = GREATEST(lifetime_allowance, 5000),
+               daily_allowance = 0,
+               daily_used = 0,
+               updated_at = NOW()
+           WHERE user_id = $1`,
+          [userId]
+        );
+        result = await query('SELECT * FROM user_quota WHERE user_id = $1', [userId]);
+      }
+
       return {
         lifetimeAllowance: result.rows[0].lifetime_allowance,
         lifetimeUsed: result.rows[0].lifetime_used,
@@ -38,7 +52,7 @@ async function getQuota(userId) {
         daily_allowance, daily_used, daily_quota_granted_at, daily_reset_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *`,
-      [userId, 500, 0, 50, 0, null, nextMidnightUTC]
+      [userId, 5000, 0, 0, 0, null, nextMidnightUTC]
     );
 
     const row = created.rows[0];
@@ -57,13 +71,8 @@ async function getQuota(userId) {
 }
 
 /**
- * Grant daily quota on login (50 emails).
- * Only grants if:
- * 1. User is NOT Pro
- * 2. Lifetime quota is exhausted (lifetime_used >= lifetime_allowance)
- * 3. Today is a new day (daily_quota_granted_at is in the past)
- *
- * SAFE TO CALL MULTIPLE TIMES PER LOGIN.
+ * Legacy daily quota grant hook (no-op when daily allowance is 0).
+ * Kept for backward compatibility with existing flows.
  */
 async function grantDailyQuotaOnLogin(userId) {
   try {
@@ -124,15 +133,7 @@ async function checkQuota(userId) {
       return {
         allowed: true,
         remaining: lifetimeRemaining,
-        reason: `${lifetimeRemaining} emails remaining this lifetime (then 50/day)`,
-      };
-    }
-
-    if (dailyRemaining > 0) {
-      return {
-        allowed: true,
-        remaining: dailyRemaining,
-        reason: `${dailyRemaining} emails remaining today (resets at midnight UTC)`,
+        reason: `${lifetimeRemaining} emails remaining on free plan`,
       };
     }
 
@@ -230,8 +231,8 @@ async function getQuotaSummary(userId) {
       },
       message:
         lifetimeRemaining > 0
-          ? `${lifetimeRemaining} emails remaining this lifetime`
-          : `${dailyRemaining} emails remaining today (resets at midnight UTC)`,
+          ? `${lifetimeRemaining} emails remaining on free plan`
+          : 'Free quota exhausted. Upgrade to Pro for unlimited cleanup.',
     };
   } catch (err) {
     logger.error('Failed to get quota summary', err, { userId });
@@ -242,7 +243,7 @@ async function getQuotaSummary(userId) {
 /**
  * Admin: manually set a user's quota.
  */
-async function adminSetQuota(userId, { lifetimeAllowance = 500, lifetimeUsed = 0, dailyAllowance = 50 }) {
+async function adminSetQuota(userId, { lifetimeAllowance = 5000, lifetimeUsed = 0, dailyAllowance = 0 }) {
   try {
     const now = new Date();
     const nextMidnightUTC = new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0);

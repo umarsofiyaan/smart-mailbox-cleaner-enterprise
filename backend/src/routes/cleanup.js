@@ -25,7 +25,7 @@ router.post(
   [
     body('scanId').isUUID(),
     body('category').isString().isLength({ min: 1, max: 100 }),
-    body('messageIds').isArray({ min: 1, max: 5000 }),
+    body('messageIds').isArray({ min: 1 }),
     body('messageIds.*').isString(),
     body('estimatedBytes').isInt({ min: 0 }),
   ],
@@ -75,7 +75,7 @@ router.post(
           const updatedQuota = await getQuotaSummary(userId);
           const isPro              = updatedQuota.isPro;
           const lifetimeUsed       = updatedQuota.lifetime?.used ?? 0;
-          const lifetimeAllowance  = updatedQuota.lifetime?.allowance ?? 500;
+          const lifetimeAllowance  = updatedQuota.lifetime?.allowance ?? 5000;
           const quotaRemaining     = updatedQuota.lifetime?.remaining ?? 0;
 
           sendCleanupReceipt(email, display_name, {
@@ -115,7 +115,7 @@ router.post(
   }
 );
 
-// ─── Undo ─────────────────────────────────────────────────────────────────────
+// ─── Undo ────────────────────────────────────────────────────────────────────
 
 router.post(
   '/undo/:actionId',
