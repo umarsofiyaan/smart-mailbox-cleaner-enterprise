@@ -4,7 +4,6 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 
 const { requireAuth } = require('../middleware/auth');
-const { requirePro } = require('../middleware/requirePro');
 const { scanLimiter } = require('../middleware/security');
 const { query } = require('../config/database');
 const { getOAuthTokens } = require('../services/tokenService');
@@ -215,26 +214,31 @@ function buildCustomQuery(params) {
 /**
  * POST /scan/preview-custom
  * Estimate how many emails match the custom query (for live count in UI).
- * Pro only.
+ * Free users are capped by remaining free quota; Pro users are uncapped.
  */
-router.post('/preview-custom', requireAuth, requirePro, async (req, res) => {
+router.post('/preview-custom', requireAuth, async (req, res) => {
   try {
     const tokens = await getOAuthTokens(req.user.id);
-    const { listMessages } = require('../services/gmailService');
     const { getGmailClient } = require('../services/gmailService');
+    const { checkQuota } = require('../services/quotaService');
 
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
     const q = buildCustomQuery(req.body);
 
-    // Fetch up to 500 for a quick estimate (avoid full traversal)
+    // Gmail returns a server-side estimate without full traversal.
     const response = await gmail.users.messages.list({
       userId: 'me',
       q,
-      maxResults: 500,
       fields: 'resultSizeEstimate,nextPageToken',
     });
 
-    const estimate = response.data.resultSizeEstimate || 0;
+    const rawEstimate = response.data.resultSizeEstimate || 0;
+    const quota = await checkQuota(req.user.id);
+    const effectiveCap = quota.allowed ? quota.remaining : 0;
+    const estimate = Number.isFinite(effectiveCap)
+      ? Math.min(rawEstimate, effectiveCap)
+      : rawEstimate;
+
     return res.json({ estimate, query: q });
   } catch (err) {
     logger.error('Custom scan preview failed', { err: err.message });
@@ -244,9 +248,10 @@ router.post('/preview-custom', requireAuth, requirePro, async (req, res) => {
 
 /**
  * POST /scan/start-custom
- * Start a custom-filtered scan. Pro only.
+ * Start a custom-filtered scan.
+ * Free users are capped by remaining free quota; Pro users are uncapped.
  */
-router.post('/start-custom', requireAuth, requirePro, scanLimiter, async (req, res) => {
+router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
   const userId = req.user.id;
 
   // Check for already-running scan
