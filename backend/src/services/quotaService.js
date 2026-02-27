@@ -132,6 +132,39 @@ async function checkQuota(userId) {
         allowed: true,
         remaining: lifetimeRemaining,
         reason: `${lifetimeRemaining} emails remaining on free plan`,
+      };
+    }
+
+    return {
+      allowed: false,
+      remaining: 0,
+      reason: 'Free quota exhausted. Upgrade to Pro for unlimited cleanup.',
+    };
+  } catch (err) {
+    logger.error('Failed to check quota', err, { userId });
+    return { allowed: true, remaining: Infinity, reason: 'Error checking quota' };
+  }
+}
+  try {
+    const subResult = await query(
+      "SELECT plan, status FROM subscription_status WHERE user_id = $1",
+      [userId]
+    );
+
+    const isPro = subResult.rows[0]?.plan === 'pro' && subResult.rows[0]?.status === 'active';
+
+    if (isPro) {
+      return { allowed: true, remaining: Infinity, reason: 'Pro user — unlimited' };
+    }
+
+    const quota = await getQuota(userId);
+
+    const lifetimeRemaining = Math.max(0, quota.lifetimeAllowance - quota.lifetimeUsed);
+    if (lifetimeRemaining > 0) {
+      return {
+        allowed: true,
+        remaining: lifetimeRemaining,
+        reason: `${lifetimeRemaining} emails remaining on free plan`,
     };
   } catch (err) {
     logger.error('Failed to check quota', err, { userId });

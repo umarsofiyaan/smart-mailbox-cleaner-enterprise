@@ -3,11 +3,17 @@
   "version": "1.0.0",
   "description": "Backend API for Smart Mailbox Cleaner",
   "main": "src/app.js",
+{
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "migrate": "node src/config/migrate.js"
+    "migrate": "node src/config/migrate.js",
+    "check:syntax": "find src -name '*.js' -print0 | xargs -0 -n1 node -c"
   },
+  "engines": {
+    "node": "20.x"
+  }
+}
   "dependencies": {
     "express": "^4.18.2",
     "googleapis": "^140.0.0",
