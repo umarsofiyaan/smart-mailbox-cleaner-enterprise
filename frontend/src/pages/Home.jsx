@@ -99,7 +99,7 @@ export default function Home() {
         </button>
 
         <p className="text-sm text-gray-400 mt-4">
-          500 free cleanup credits included · Undo any action within 30 days
+          5,000 free cleanup credits included · Undo any action within 30 days
         </p>
       </section>
 
@@ -207,7 +207,7 @@ export default function Home() {
         >
           Start cleaning for free →
         </button>
-        <p className="text-sm text-gray-400 mt-3">500 free credits · No credit card</p>
+        <p className="text-sm text-gray-400 mt-3">5,000 free credits · No credit card</p>
       </section>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}

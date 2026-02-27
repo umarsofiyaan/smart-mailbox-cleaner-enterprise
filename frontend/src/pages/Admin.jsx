@@ -34,14 +34,14 @@ function UserRow({ u, currentUserId, onRefresh }) {
   const [busy, setBusy]                   = useState(false);
   const [error, setError]                 = useState('');
   const [showQuotaEdit, setShowQuotaEdit] = useState(false);
-  const [quotaInput, setQuotaInput]       = useState(u.lifetime_allowance ?? 500);
+  const [quotaInput, setQuotaInput]       = useState(u.lifetime_allowance ?? 5000);
 
   // ✅ Correct snake_case field names from backend
   const isPro       = u.plan === 'pro' && u.subscription_status === 'active';
   const isAdminUser = Boolean(u.is_admin);
   const isSelf      = u.id === currentUserId;
 
-  const lifetimeAllowance = u.lifetime_allowance ?? 500;
+  const lifetimeAllowance = u.lifetime_allowance ?? 5000;
   const lifetimeUsed      = u.lifetime_used      ?? 0;
   const lifetimeRemaining = isPro ? null : Math.max(0, lifetimeAllowance - lifetimeUsed);
   const cleanupCount      = parseInt(u.cleanup_count) || 0;
@@ -73,7 +73,7 @@ function UserRow({ u, currentUserId, onRefresh }) {
     if (!confirm(`Set quota for ${u.email} to ${quotaInput} lifetime emails?`)) return;
     setBusy(true); setError('');
     try {
-      await api.patch(`/admin/users/${u.id}/quota`, { lifetimeAllowance: parseInt(quotaInput), lifetimeUsed: 0, dailyAllowance: 50 });
+      await api.patch(`/admin/users/${u.id}/quota`, { lifetimeAllowance: parseInt(quotaInput), lifetimeUsed: 0, dailyAllowance: 0 });
       setShowQuotaEdit(false);
       onRefresh();
     } catch (err) { setError(err.response?.data?.error || 'Failed'); }

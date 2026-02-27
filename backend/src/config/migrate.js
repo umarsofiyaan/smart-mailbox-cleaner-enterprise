@@ -130,16 +130,26 @@ CREATE TABLE IF NOT EXISTS user_quota (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
   -- Lifetime free allowance (500 emails total, shared across all-time use)
-  lifetime_allowance INTEGER NOT NULL DEFAULT 500,
-  lifetime_used INTEGER NOT NULL DEFAULT 0,
-  -- Daily free quota (50 emails/day on login, resets at midnight UTC)
-  daily_allowance INTEGER NOT NULL DEFAULT 50,
+  -- Lifetime free allowance (5,000 emails total, shared across all-time use)
+  lifetime_allowance INTEGER NOT NULL DEFAULT 5000,
+  -- Daily quota disabled for the new free model (legacy field kept for compatibility)
+  daily_allowance INTEGER NOT NULL DEFAULT 0,
   daily_used INTEGER NOT NULL DEFAULT 0,
-  daily_quota_granted_at TIMESTAMPTZ,   -- when today's 50 were granted (on login)
+   daily_quota_granted_at TIMESTAMPTZ,
   daily_reset_at TIMESTAMPTZ,           -- next midnight UTC reset time
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Keep existing DBs aligned with current free-tier defaults.
+ALTER TABLE user_quota ALTER COLUMN lifetime_allowance SET DEFAULT 5000;
+ALTER TABLE user_quota ALTER COLUMN daily_allowance SET DEFAULT 0;
+UPDATE user_quota
+SET lifetime_allowance = GREATEST(lifetime_allowance, 5000),
+    daily_allowance = 0,
+    daily_used = 0,
+    updated_at = NOW()
+WHERE lifetime_allowance < 5000 OR daily_allowance != 0 OR daily_used != 0;
 
 CREATE INDEX IF NOT EXISTS idx_user_quota_user_id ON user_quota(user_id);
 

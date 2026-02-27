@@ -1,7 +1,7 @@
 // src/services/quotaService.js
 // Free-tier quota enforcement: lifetime (5000 emails).
 // Pro users bypass all quota checks.
-// Daily grant happens on login only (grantDailyQuotaOnLogin).
+// Daily grant is disabled in the current free model (daily allowance defaults to 0).
 
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
@@ -127,20 +127,11 @@ async function checkQuota(userId) {
     const quota = await getQuota(userId);
 
     const lifetimeRemaining = Math.max(0, quota.lifetimeAllowance - quota.lifetimeUsed);
-    const dailyRemaining = Math.max(0, quota.dailyAllowance - quota.dailyUsed);
-
     if (lifetimeRemaining > 0) {
       return {
         allowed: true,
         remaining: lifetimeRemaining,
         reason: `${lifetimeRemaining} emails remaining on free plan`,
-      };
-    }
-
-    return {
-      allowed: false,
-      remaining: 0,
-      reason: 'Free quota exhausted. Upgrade to Pro for unlimited cleanup.',
     };
   } catch (err) {
     logger.error('Failed to check quota', err, { userId });

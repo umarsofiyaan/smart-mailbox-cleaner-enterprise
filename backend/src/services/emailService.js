@@ -89,7 +89,7 @@ async function sendWelcomeEmail(email, displayName) {
     <h1>Welcome, ${name}! 👋</h1>
     <p>Your Gmail is about to get a lot cleaner. Here's what you get on the <strong>free plan</strong>:</p>
     <div class="stats">
-      <div class="stat"><div class="sv">500</div><div class="sl">Lifetime credits</div></div>
+      <div class="stat"><div class="sv">5,000</div><div class="sl">Lifetime credits</div></div>
       <div class="stat"><div class="sv">30d</div><div class="sl">Undo window</div></div>
       <div class="stat"><div class="sv">7</div><div class="sl">Categories</div></div>
     </div>
@@ -103,7 +103,7 @@ async function sendWelcomeEmail(email, displayName) {
     to: email,
     subject: `Welcome to Smart Mailbox Cleaner, ${name}! 📬`,
     html,
-    text: `Welcome ${name}!\nYou have 500 free lifetime email credits.\nScan now: ${APP_URL}/dashboard`,
+    text: `Welcome ${name}!\nYou have 5,000 free lifetime email credits.\nScan now: ${APP_URL}/dashboard`,
   });
 }
 
@@ -155,7 +155,7 @@ async function sendQuotaWarningEmail(email, displayName, { lifetimeUsed, lifetim
       <div class="stat"><div class="sv" style="color:#D97706">${remaining}</div><div class="sl">Credits remaining</div></div>
       <div class="stat"><div class="sv">${lifetimeUsed}</div><div class="sl">Credits used</div></div>
     </div>
-    <div class="warn"><p>⚡ When free credits run out, you'll automatically get <strong>50 emails/day</strong> — or upgrade to Pro for unlimited cleanup.</p></div>
+    <div class="warn"><p>⚡ When free credits run out, upgrade to Pro for unlimited cleanup.</p></div>
     <p>Pro gives you unlimited cleanups, full scan depth, and priority support for just <strong>₹500/month</strong>.</p>
     <div style="text-align:center;margin:26px 0">
       <a href="${APP_URL}/pricing" class="btn">Upgrade to Pro →</a>

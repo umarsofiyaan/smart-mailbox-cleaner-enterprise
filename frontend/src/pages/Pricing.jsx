@@ -65,8 +65,8 @@ const PLANS = [
 
 const FREE_FEATURES = [
   'Scan last 12 months',
-  '500 lifetime cleanup credits',
-  '50 free credits/day after',
+  '5,000 lifetime cleanup credits',
+  'No daily top-ups (single lifetime pool)',
   'View confidence scores',
   'Storage usage dashboard',
 ];
@@ -379,7 +379,7 @@ export default function Pricing() {
             },
             {
               q: 'What happens when my plan ends?',
-              a: 'You automatically revert to the Free tier — 500 lifetime credits plus 50 per day. Your history, scan results, and data are preserved.',
+              a: 'You automatically revert to the Free tier — 5,000 lifetime cleanup credits. Your history, scan results, and data are preserved.',
             },
             {
               q: 'What Gmail permissions are used?',

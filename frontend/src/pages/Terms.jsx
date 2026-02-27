@@ -102,10 +102,8 @@ export default function Terms() {
 
           <Section title="6. Free Tier and Quota">
             <P>
-              Free-tier users receive a lifetime allowance of <strong>500 cleanup credits</strong>.
-              Each email moved to Trash consumes one credit. After the lifetime allowance is exhausted,
-              free users receive <strong>50 credits per day</strong>, renewed automatically at
-              midnight UTC.
+              Free-tier users receive a lifetime allowance of <strong>5,000 cleanup credits</strong>.
+              Each email moved to Trash consumes one credit. There are no recurring daily top-ups on the free tier.
             </P>
             <P>
               We reserve the right to adjust quota limits at any time with reasonable notice.
@@ -130,7 +128,7 @@ export default function Terms() {
             <H3>7.3 Refunds</H3>
             <P>
               We offer a full refund within <strong>7 days</strong> of your first Pro subscription
-              payment if you are not satisfied, provided you have not cleaned more than 500 emails
+              payment if you are not satisfied, provided you have not cleaned more than 5,000 emails
               during that period. To request a refund, email us at{' '}
               <a href={`mailto:${contactEmail}`} className="text-brand-600 underline">{contactEmail}</a>.
             </P>
