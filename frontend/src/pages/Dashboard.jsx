@@ -14,6 +14,7 @@ import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
 import SubscriptionModal from '../components/SubscriptionModal';
 import CustomScanBuilder from '../components/CustomScanBuilder';
+import PlaybooksPanel from '../components/PlaybooksPanel';
 import api, { subscriptionApi, cleanupApi, scanApi } from '../api/client';
 
 function formatGB(bytes) {
@@ -623,6 +624,10 @@ export default function Dashboard() {
             key={historyKey}
             onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(); }}
           />
+        </div>
+
+        <div className="mt-8">
+          <PlaybooksPanel />
         </div>
       </main>
 

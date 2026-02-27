@@ -9,6 +9,7 @@
 const { query }       = require('../config/database');
 const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
+const { executePlaybookRun, enqueuePlaybookRun } = require('../services/playbookService');
 const logger          = require('../utils/logger');
 
 const POLL_INTERVAL_MS = 10000;
@@ -79,6 +80,9 @@ async function executeJob(job) {
     const tokens = await getOAuthTokens(job.user_id);
     await query("UPDATE scans SET status='running' WHERE id=$1", [scanId]);
     await runCustomScan(scanId, job.user_id, tokens, customQuery);
+  } else if (job.job_type === 'PLAYBOOK_RUN') {
+    const { runId, playbookId } = job.payload;
+    await executePlaybookRun(runId, job.user_id, playbookId);
   } else {
     throw new Error(`Unknown job type: ${job.job_type}`);
   }
@@ -118,6 +122,8 @@ async function runCronTasks() {
       await runExpiredSubCleanup();
       lastSubCleanup = hourKey;
     }
+
+    await enqueueDuePlaybookSchedules();
 
     if (lastScanExpiry !== dayKey) {
       await runScanExpiry();
@@ -195,6 +201,29 @@ async function runScanExpiry() {
 
   } catch (err) {
     logger.error('Scan expiry failed', err);
+  }
+}
+
+async function enqueueDuePlaybookSchedules() {
+  try {
+    const due = await query(
+      `SELECT s.playbook_id, p.user_id
+       FROM playbook_schedules s
+       JOIN playbooks p ON p.id = s.playbook_id
+       WHERE s.is_active = TRUE
+         AND p.is_active = TRUE
+         AND s.frequency IN ('daily', 'weekly')
+         AND s.next_run_at IS NOT NULL
+         AND s.next_run_at <= NOW()
+       ORDER BY s.next_run_at ASC
+       LIMIT 20`
+    );
+
+    for (const row of due.rows) {
+      await enqueuePlaybookRun(row.user_id, row.playbook_id, 'scheduled');
+    }
+  } catch (err) {
+    logger.error('Failed enqueueing due playbook schedules', err);
   }
 }
 

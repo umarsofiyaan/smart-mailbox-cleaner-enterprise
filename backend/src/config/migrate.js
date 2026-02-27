@@ -221,6 +221,65 @@ CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at) WHERE delet
 -- 3. Email notification flags on user_quota
 ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_warning_sent   BOOLEAN DEFAULT FALSE;
 ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_exhausted_sent BOOLEAN DEFAULT FALSE;
+
+-- ============================================================
+-- Automation (Playbooks + Schedules + Runs)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS playbooks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(120) NOT NULL,
+  query TEXT NOT NULL,
+  safety_rules JSONB NOT NULL DEFAULT '{"exclude_starred":true,"exclude_important":false,"exclude_replied_threads":false}',
+  action_mode VARCHAR(20) NOT NULL DEFAULT 'trash',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS playbook_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  playbook_id UUID REFERENCES playbooks(id) ON DELETE CASCADE UNIQUE,
+  frequency VARCHAR(20) NOT NULL DEFAULT 'none',
+  day_of_week INTEGER,
+  run_at_utc TIME NOT NULL DEFAULT '03:00:00',
+  next_run_at TIMESTAMPTZ,
+  last_run_at TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS playbook_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  playbook_id UUID REFERENCES playbooks(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  matched_count BIGINT NOT NULL DEFAULT 0,
+  cleaned_count BIGINT NOT NULL DEFAULT 0,
+  estimated_bytes BIGINT NOT NULL DEFAULT 0,
+  error_message TEXT,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_playbooks_user_active ON playbooks(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_playbook_schedules_due ON playbook_schedules(next_run_at, is_active);
+CREATE INDEX IF NOT EXISTS idx_playbook_runs_user_created ON playbook_runs(user_id, created_at DESC);
+
+DO $$ BEGIN
+  CREATE TRIGGER update_playbooks_updated_at
+  BEFORE UPDATE ON playbooks
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER update_playbook_schedules_updated_at
+  BEFORE UPDATE ON playbook_schedules
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 `;
 
 async function migrate() {
