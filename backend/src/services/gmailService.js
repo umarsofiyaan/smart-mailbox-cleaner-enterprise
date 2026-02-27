@@ -114,6 +114,43 @@ async function listMessages(gmail, q, pageToken = null, maxResults = 500) {
 }
 
 /**
+ * Collect message IDs for a Gmail query across all pages.
+ * Optionally cap how many IDs are collected.
+ *
+ * @param {object} gmail
+ * @param {string} q
+ * @param {{ maxMessages?: number, pageDelayMs?: number }} options
+ * @returns {Promise<string[]>}
+ */
+async function collectMessageIdsByQuery(gmail, q, options = {}) {
+  const {
+    maxMessages = Infinity,
+    pageDelayMs = 200,
+  } = options;
+
+  const ids = [];
+  let pageToken = null;
+  const limit = Number.isFinite(maxMessages) ? Math.max(0, Math.floor(maxMessages)) : Infinity;
+  if (limit === 0) return ids;
+
+  do {
+    const { messages, nextPageToken } = await listMessages(gmail, q, pageToken, 500);
+    ids.push(...messages.map(m => m.id));
+    pageToken = nextPageToken;
+
+    if (ids.length >= limit) {
+      break;
+    }
+
+    if (pageToken) {
+      await sleep(pageDelayMs);
+    }
+  } while (pageToken);
+
+  return Number.isFinite(limit) ? ids.slice(0, limit) : ids;
+}
+
+/**
  * Fetch minimal message metadata (no body).
  * Returns: id, threadId, labelIds, sizeEstimate, internalDate, headers subset
  * 
@@ -280,6 +317,7 @@ module.exports = {
   getMailboxProfile,
   getStorageQuota,
   listMessages,
+  collectMessageIdsByQuery,
   getMessageMetadata,
   batchGetMessageMetadata,
   batchTrashMessages,

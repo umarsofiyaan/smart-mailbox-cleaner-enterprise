@@ -301,6 +301,8 @@ export default function Dashboard() {
         category:       pendingCleanup.category,
         messageIds:     pendingCleanup.messageIds,
         estimatedBytes: pendingCleanup.estimatedBytes,
+        cleanupMode:    pendingCleanup.cleanupMode || 'ids',
+        customQuery:    pendingCleanup.customQuery || undefined,
       });
       setPendingCleanup(null);
       setUndoAction(result);

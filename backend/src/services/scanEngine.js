@@ -3,9 +3,16 @@
 // Implements paged scanning with progress tracking.
 // NEVER reads or stores email body content.
 
-const { getGmailClient, listMessages, batchGetMessageMetadata, getStorageQuota, sleep } = require('./gmailService');
+const {
+  getGmailClient,
+  collectMessageIdsByQuery,
+  batchGetMessageMetadata,
+  getStorageQuota,
+  sleep,
+} = require('./gmailService');
 const { scoreCategory } = require('./confidenceEngine');
 const { query } = require('../config/database');
+const { checkQuota } = require('./quotaService');
 const logger = require('../utils/logger');
 
 /**
@@ -81,24 +88,6 @@ function applyDepthFilter(baseQuery, scanDepth) {
 }
 
 /**
- * Collect all message IDs for a category query, paginated.
- * Stops at maxMessages to avoid scanning the entire mailbox at once.
- */
-async function collectMessageIds(gmail, q, maxMessages = 2000) {
-  const ids = [];
-  let pageToken = null;
-
-  do {
-    const { messages, nextPageToken } = await listMessages(gmail, q, pageToken, 500);
-    ids.push(...messages.map(m => m.id));
-    pageToken = nextPageToken;
-    await sleep(200);
-  } while (pageToken && ids.length < maxMessages);
-
-  return ids;
-}
-
-/**
  * Run a full scan for a user.
  * Updates the scan record in DB as it progresses.
  * 
@@ -139,7 +128,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
 
       let messageIds;
       try {
-        messageIds = await collectMessageIds(gmail, q, 2000);
+        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages: 2000 });
       } catch (err) {
         logger.warn(`Failed to list messages for category ${categoryKey}`, { err: err.message });
         messageIds = [];
@@ -269,10 +258,14 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
 
     logger.info('Running custom scan', { scanId, userId, query: customQuery });
 
+    // Pro: no cap. Free: cap by remaining lifetime/daily quota.
+    const quota = await checkQuota(userId);
+    const maxMatches = quota.allowed ? quota.remaining : 0;
+
     // Collect message IDs matching the custom query
     let messageIds;
     try {
-      messageIds = await collectMessageIds(gmail, customQuery, 2000);
+      messageIds = await collectMessageIdsByQuery(gmail, customQuery, { maxMessages: maxMatches });
     } catch (err) {
       logger.warn('Custom scan: failed to list messages', { err: err.message });
       messageIds = [];
@@ -282,13 +275,18 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
     let categoryResults = [];
 
     if (messageIds.length > 0) {
-      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, 500));
+      // Keep metadata sampling bounded for performance while still reflecting
+      // full match count for cleanup.
+      const metadataSampleSize = Math.min(messageIds.length, 2000);
+      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
       const threadCounts = new Map();
       for (const msg of metadata) {
         threadCounts.set(msg.threadId, (threadCounts.get(msg.threadId) || 0) + 1);
       }
       const scored = scoreCategory(metadata, 'custom_filter', threadCounts);
-      totalFreeableBytes = scored.totalBytes;
+      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
+      totalFreeableBytes = Math.round(avgBytes * messageIds.length);
+
       categoryResults = [{
         key: 'custom_filter',
         label: 'Custom Filter',
@@ -296,6 +294,13 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
         icon: 'AdjustmentsIcon',
         color: 'indigo',
         ...scored,
+        messageCount: messageIds.length,
+        totalBytes: totalFreeableBytes,
+        estimatedMB: parseFloat((totalFreeableBytes / (1024 * 1024)).toFixed(2)),
+        cleanup: {
+          mode: 'query',
+          query: customQuery,
+        },
       }];
     }
 

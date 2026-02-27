@@ -6,6 +6,7 @@ const router = express.Router();
 const { requireAuth }       = require('../middleware/auth');
 const { cleanupLimiter }    = require('../middleware/security');
 const { getOAuthTokens }    = require('../services/tokenService');
+const { getGmailClient, collectMessageIdsByQuery } = require('../services/gmailService');
 const { executeCleanup, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
 const { checkQuota, consumeQuota, getQuotaSummary }      = require('../services/quotaService');
 const {
@@ -25,15 +26,24 @@ router.post(
   [
     body('scanId').isUUID(),
     body('category').isString().isLength({ min: 1, max: 100 }),
-    body('messageIds').isArray({ min: 1 }),
-    body('messageIds.*').isString(),
-    body('estimatedBytes').isInt({ min: 0 }),
+    body('messageIds').optional().isArray(),
+    body('messageIds.*').optional().isString(),
+    body('estimatedBytes').optional().isInt({ min: 0 }),
+    body('cleanupMode').optional().isIn(['ids', 'query']),
+    body('customQuery').optional().isString().isLength({ min: 1, max: 2000 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const { scanId, category, messageIds, estimatedBytes } = req.body;
+    const {
+      scanId,
+      category,
+      messageIds = [],
+      estimatedBytes = 0,
+      cleanupMode = 'ids',
+      customQuery,
+    } = req.body;
     const userId = req.user.id;
 
     // Verify scan belongs to user
@@ -42,6 +52,13 @@ router.post(
     );
     if (scanCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
+    }
+
+    if (cleanupMode === 'query' && !customQuery) {
+      return res.status(400).json({ error: 'customQuery is required when cleanupMode=query.' });
+    }
+    if (cleanupMode !== 'query' && messageIds.length === 0) {
+      return res.status(400).json({ error: 'messageIds are required when cleanupMode=ids.' });
     }
 
     // Check quota
@@ -54,11 +71,24 @@ router.post(
       });
     }
 
-    // Trim message list to quota remaining
-    const effectiveIds = messageIds.slice(0, quotaCheck.remaining);
-
     try {
       const tokens = await getOAuthTokens(userId);
+      let effectiveIds;
+
+      if (cleanupMode === 'query') {
+        const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
+        effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
+          maxMessages: quotaCheck.remaining,
+        });
+      } else {
+        // Trim message list to quota remaining
+        effectiveIds = messageIds.slice(0, quotaCheck.remaining);
+      }
+
+      if (!effectiveIds.length) {
+        return res.status(400).json({ error: 'No matching emails found for cleanup.' });
+      }
+
       const result = await executeCleanup(userId, scanId, category, effectiveIds, estimatedBytes, tokens);
 
       await consumeQuota(userId, result.successCount);

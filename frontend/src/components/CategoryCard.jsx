@@ -81,6 +81,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
   if (category.messageCount === 0) return null;
 
   const allMessageIds = category.messages?.map(m => m.id) || [];
+  const isQueryCleanup = category.cleanup?.mode === 'query' && !!category.cleanup?.query;
 
   const reviewMessages = (category.messages || [])
     .filter(m => m.tier === 'REVIEW_REQUIRED')
@@ -197,15 +198,17 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
           <button
             onClick={() => onCleanup({
               category: category.key,
-              messageIds: allMessageIds,
+              messageIds: isQueryCleanup ? [] : allMessageIds,
               estimatedBytes: category.totalBytes,
               label: category.label,
               messageCount: category.messageCount,
+              cleanupMode: isQueryCleanup ? 'query' : 'ids',
+              customQuery: isQueryCleanup ? category.cleanup.query : null,
             })}
-            disabled={isLoading || allMessageIds.length === 0}
+            disabled={isLoading || (!isQueryCleanup && allMessageIds.length === 0)}
             className={clsx(
               'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
-              allMessageIds.length > 0
+              isQueryCleanup || allMessageIds.length > 0
                 ? 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             )}
@@ -218,15 +221,17 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
             <button
               onClick={() => onCleanup({
                 category: category.key,
-                messageIds: allMessageIds.slice(0, quotaRemaining),
+                messageIds: isQueryCleanup ? [] : allMessageIds.slice(0, quotaRemaining),
                 estimatedBytes: category.totalBytes,
                 label: category.label,
                 messageCount: Math.min(category.messageCount, quotaRemaining),
+                cleanupMode: isQueryCleanup ? 'query' : 'ids',
+                customQuery: isQueryCleanup ? category.cleanup.query : null,
               })}
-              disabled={isLoading || allMessageIds.length === 0}
+              disabled={isLoading || (!isQueryCleanup && allMessageIds.length === 0)}
               className={clsx(
                 'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
-                allMessageIds.length > 0
+                isQueryCleanup || allMessageIds.length > 0
                   ? 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'
               )}
