@@ -107,11 +107,16 @@ async function listMessages(gmail, q, pageToken = null, maxResults = 500) {
   };
   if (pageToken) params.pageToken = pageToken;
 
+  const listStart = Date.now();
   const res = await withBackoff(() => gmail.users.messages.list(params));
+  const elapsed = Date.now() - listStart;
+  const estimate = res.data.resultSizeEstimate || 0;
+  const count = (res.data.messages || []).length;
+  logger.info(`[GMAIL DEBUG] messages.list: q="${q}", estimate=${estimate}, got=${count}, elapsed=${elapsed}ms`);
   return {
     messages: res.data.messages || [],
     nextPageToken: res.data.nextPageToken || null,
-    resultSizeEstimate: res.data.resultSizeEstimate || 0,
+    resultSizeEstimate: estimate,
   };
 }
 

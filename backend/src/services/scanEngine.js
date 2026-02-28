@@ -142,6 +142,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
     const maxMatches = (isBypassPro || quota.remaining === Infinity)
       ? Infinity
       : (quota.allowed && quota.remaining > 0 ? quota.remaining : Infinity); // default Infinity so scan always runs
+    logger.info(`[SCAN DEBUG] Quota check: allowed=${quota.allowed}, remaining=${quota.remaining}, isBypassPro=${isBypassPro}, maxMatches=${maxMatches === Infinity ? 'Infinity' : maxMatches}, scanDepth=${scanDepth}`, { scanId });
 
     // Step 2: Scan each category
     const categoryResults = [];
@@ -159,9 +160,12 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         continue;
       }
 
+      logger.info(`[SCAN DEBUG] Category ${categoryKey}: query="${q}", maxMessages=${maxMessages === Infinity ? 'Infinity' : maxMessages}`, { scanId });
       let messageIds;
+      const categoryStart = Date.now();
       try {
         messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages });
+        logger.info(`[SCAN DEBUG] Category ${categoryKey}: found ${messageIds.length} messages in ${Date.now()-categoryStart}ms`, { scanId });
       } catch (err) {
         const status = err?.response?.status || err?.code;
         const errMsg = err?.response?.data?.error?.message || err?.message || String(err);
