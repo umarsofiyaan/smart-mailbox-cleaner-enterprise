@@ -95,6 +95,7 @@ export const automationApi = {
   listPlaybooks:   ()               => api.get('/automation/playbooks'),
   createPlaybook:  (payload)        => api.post('/automation/playbooks', payload),
   updatePlaybook:  (id, payload)    => api.patch(`/automation/playbooks/${id}`, payload),
+  deletePlaybook:  (id)             => api.delete(`/automation/playbooks/${id}`),
   previewPlaybook: (id)             => api.post(`/automation/playbooks/${id}/preview`),
   runPlaybook:     (id)             => api.post(`/automation/playbooks/${id}/run`),
   listRuns:        (limit = 20)     => api.get('/automation/runs', { params: { limit } }),

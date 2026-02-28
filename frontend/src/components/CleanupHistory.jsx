@@ -50,7 +50,7 @@ const CATEGORY_ICONS = {
   drive_attachments:      '☁️',
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 5;
 
 function HistoryRow({ action, onUndo, undoingId }) {
   const [showTooltip, setShowTooltip] = useState(false);

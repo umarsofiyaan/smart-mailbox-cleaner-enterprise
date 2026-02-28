@@ -61,7 +61,7 @@ const LOCATION_OPTIONS = [
 
 // ── Helper: build human-readable query preview string ─────────────────────────
 
-function buildQueryPreview(params) {
+export function buildQueryPreview(params) {
   const parts = [];
   if (params.sizeMin)   parts.push(`larger:${params.sizeMin}`);
   if (params.olderThan) parts.push(`older_than:${params.olderThan}`);
@@ -228,7 +228,7 @@ const DEFAULT_PARAMS = {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function CustomScanBuilder({ isOpen, onClose, onStart, isScanning }) {
+export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePlaybook, isScanning }) {
   const [params,         setParams]         = useState(DEFAULT_PARAMS);
   const [estimate,       setEstimate]       = useState(null);
   const [estimateLoading, setEstimateLoading] = useState(false);
@@ -299,6 +299,17 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, isScanning
       return;
     }
     onStart(params);
+  }
+
+  function handleCreatePlaybook() {
+    if (!hasAnyFilter(params)) {
+      setError('Please set at least one filter before creating a playbook.');
+      return;
+    }
+    onCreatePlaybook?.({
+      params,
+      query: buildQueryPreview(params),
+    });
   }
 
   if (!isOpen) return null;
@@ -527,6 +538,14 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, isScanning
             className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
           >
             Cancel
+          </button>
+
+          <button
+            onClick={handleCreatePlaybook}
+            disabled={!canStart}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Create Playbook
           </button>
 
           <button

@@ -7,6 +7,7 @@ const {
   createPlaybook,
   listPlaybooks,
   updatePlaybook,
+  deletePlaybook,
   getPlaybook,
   previewPlaybook,
   enqueuePlaybookRun,
@@ -68,6 +69,20 @@ router.patch(
     }
   }
 );
+
+router.delete('/playbooks/:id', [param('id').isUUID()], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  try {
+    const deleted = await deletePlaybook(req.user.id, req.params.id);
+    return res.json({ success: true, deleted });
+  } catch (err) {
+    if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+    logger.error('Failed to delete playbook', err);
+    return res.status(500).json({ error: 'Failed to delete playbook.' });
+  }
+});
 
 router.post('/playbooks/:id/preview', [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);

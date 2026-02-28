@@ -13,9 +13,9 @@ import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
 import SubscriptionModal from '../components/SubscriptionModal';
-import CustomScanBuilder from '../components/CustomScanBuilder';
+import CustomScanBuilder, { buildQueryPreview } from '../components/CustomScanBuilder';
 import PlaybooksPanel from '../components/PlaybooksPanel';
-import api, { subscriptionApi, cleanupApi, scanApi } from '../api/client';
+import api, { subscriptionApi, cleanupApi, scanApi, automationApi } from '../api/client';
 
 function formatGB(bytes) {
   if (!bytes) return '0 MB';
@@ -284,6 +284,33 @@ export default function Dashboard() {
     }
   }
 
+  async function handleCreatePlaybookFromCustom({ params, query }) {
+    const name = window.prompt('Playbook name');
+    if (!name?.trim()) return;
+
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      await automationApi.createPlaybook({
+        name: name.trim(),
+        query: query || buildQueryPreview(params),
+        safety_rules: {
+          exclude_starred: params.excludeStarred !== false,
+          exclude_important: false,
+          exclude_replied_threads: false,
+        },
+        schedule: {
+          frequency: 'none',
+          run_at_utc: '03:00',
+          timezone,
+        },
+      });
+      setShowCustomScan(false);
+      alert('Playbook created successfully.');
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to create playbook.');
+    }
+  }
+
   // ── Cleanup ─────────────────────────────────────────────────────────────────
 
   function handleCleanupRequest(categoryData) {
@@ -544,6 +571,19 @@ export default function Dashboard() {
                     </button>
                   </div>
                 )}
+
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                  <p className="font-bold text-emerald-900 text-sm mb-1">Need automation?</p>
+                  <p className="text-emerald-700 text-xs mb-3 leading-relaxed">
+                    Save filters as Playbooks and run them daily or weekly automatically.
+                  </p>
+                  <button
+                    onClick={() => document.getElementById('playbooks-panel')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="w-full bg-emerald-600 text-white font-bold py-2 rounded-xl text-sm hover:bg-emerald-700 transition-colors"
+                  >
+                    Open Playbooks
+                  </button>
+                </div>
               </div>
 
               {/* Right: categories */}
@@ -613,6 +653,11 @@ export default function Dashboard() {
                 className="bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200 px-8 py-3 rounded-xl hover:bg-indigo-100 transition-colors"
               >
                 🎛️ Custom Scan
+              </button>              <button
+                onClick={() => document.getElementById('playbooks-panel')?.scrollIntoView({ behavior: 'smooth' })}
+                className="bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 px-8 py-3 rounded-xl hover:bg-emerald-100 transition-colors"
+              >
+                Playbooks
               </button>
             </div>
           </div>
@@ -626,7 +671,7 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8" id="playbooks-panel">
           <PlaybooksPanel />
         </div>
       </main>
@@ -658,8 +703,10 @@ export default function Dashboard() {
         isOpen={showCustomScan}
         onClose={() => setShowCustomScan(false)}
         onStart={handleCustomScanStart}
+        onCreatePlaybook={handleCreatePlaybookFromCustom}
         isScanning={isRunning}
       />
     </div>
   );
 }
+

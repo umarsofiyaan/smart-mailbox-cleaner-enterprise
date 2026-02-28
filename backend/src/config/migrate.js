@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS playbooks (
   query TEXT NOT NULL,
   safety_rules JSONB NOT NULL DEFAULT '{"exclude_starred":true,"exclude_important":false,"exclude_replied_threads":false}',
   action_mode VARCHAR(20) NOT NULL DEFAULT 'trash',
+  version INTEGER NOT NULL DEFAULT 1,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -244,6 +245,7 @@ CREATE TABLE IF NOT EXISTS playbook_schedules (
   frequency VARCHAR(20) NOT NULL DEFAULT 'none',
   day_of_week INTEGER,
   run_at_utc TIME NOT NULL DEFAULT '03:00:00',
+  timezone VARCHAR(100) NOT NULL DEFAULT 'UTC',
   next_run_at TIMESTAMPTZ,
   last_run_at TIMESTAMPTZ,
   is_active BOOLEAN NOT NULL DEFAULT FALSE,
@@ -256,6 +258,12 @@ CREATE TABLE IF NOT EXISTS playbook_runs (
   playbook_id UUID REFERENCES playbooks(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  trigger_source VARCHAR(20) NOT NULL DEFAULT 'manual',
+  playbook_name_snapshot VARCHAR(120),
+  query_snapshot TEXT,
+  safety_rules_snapshot JSONB,
+  playbook_version_snapshot INTEGER,
+  playbook_updated_at_snapshot TIMESTAMPTZ,
   matched_count BIGINT NOT NULL DEFAULT 0,
   cleaned_count BIGINT NOT NULL DEFAULT 0,
   estimated_bytes BIGINT NOT NULL DEFAULT 0,
@@ -268,6 +276,16 @@ CREATE TABLE IF NOT EXISTS playbook_runs (
 CREATE INDEX IF NOT EXISTS idx_playbooks_user_active ON playbooks(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_playbook_schedules_due ON playbook_schedules(next_run_at, is_active);
 CREATE INDEX IF NOT EXISTS idx_playbook_runs_user_created ON playbook_runs(user_id, created_at DESC);
+
+-- Backward-compatible ALTERs for already-provisioned DBs.
+ALTER TABLE playbooks ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE playbook_schedules ADD COLUMN IF NOT EXISTS timezone VARCHAR(100) NOT NULL DEFAULT 'UTC';
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS trigger_source VARCHAR(20) NOT NULL DEFAULT 'manual';
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS playbook_name_snapshot VARCHAR(120);
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS query_snapshot TEXT;
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS safety_rules_snapshot JSONB;
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS playbook_version_snapshot INTEGER;
+ALTER TABLE playbook_runs ADD COLUMN IF NOT EXISTS playbook_updated_at_snapshot TIMESTAMPTZ;
 
 DO $$ BEGIN
   CREATE TRIGGER update_playbooks_updated_at

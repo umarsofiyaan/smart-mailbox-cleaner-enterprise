@@ -116,6 +116,10 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       storageInfo = { storageUsedBytes: 0, storageQuotaBytes: 15 * 1024 * 1024 * 1024 };
     }
 
+    // Pro: uncapped. Free: cap by remaining free quota.
+    const quota = await checkQuota(userId);
+    const maxMatches = quota.allowed ? quota.remaining : 0;
+
     // Step 2: Scan each category
     const categoryResults = [];
     let totalMessagesScanned = 0;
@@ -128,7 +132,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
 
       let messageIds;
       try {
-        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages: 2000 });
+        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages });
       } catch (err) {
         logger.warn(`Failed to list messages for category ${categoryKey}`, { err: err.message });
         messageIds = [];
@@ -155,8 +159,9 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       }
 
       // Fetch metadata (no body)
-      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, 500));
-      totalMessagesScanned += metadata.length;
+      const metadataSampleSize = Math.min(messageIds.length, 2000);
+      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
+      totalMessagesScanned += messageIds.length;
 
       // Build thread count map for reply detection
       const threadCounts = new Map();
@@ -167,7 +172,9 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
 
       // Score category
       const scored = scoreCategory(metadata, categoryKey, threadCounts);
-      totalFreeableBytes += scored.totalBytes;
+      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
+      const estimatedCategoryBytes = Math.round(avgBytes * messageIds.length);
+      totalFreeableBytes += estimatedCategoryBytes;
 
       categoryResults.push({
         key: categoryKey,
@@ -176,6 +183,13 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         icon: categoryDef.icon,
         color: categoryDef.color,
         ...scored,
+        messageCount: messageIds.length,
+        totalBytes: estimatedCategoryBytes,
+        estimatedMB: parseFloat((estimatedCategoryBytes / (1024 * 1024)).toFixed(2)),
+        cleanup: {
+          mode: 'query',
+          query: q,
+        },
       });
 
       // Update progress in DB
