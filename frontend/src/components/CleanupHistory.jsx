@@ -189,7 +189,14 @@ export default function CleanupHistory({ onUndoSuccess }) {
       await load();
       onUndoSuccess?.();
     } catch (err) {
-      setError(err.response?.data?.error || 'Undo failed. Please try again.');
+      const msg = err?.response?.data?.error || err?.message || 'Undo failed.';
+      if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
+        // Backend may still be restoring large batches. Refresh silently.
+        setTimeout(() => { load(); }, 3000);
+        setTimeout(() => { load(); }, 12000);
+        return;
+      }
+      setError(msg);
     } finally {
       setUndoingId(null);
     }

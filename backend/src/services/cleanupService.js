@@ -141,7 +141,9 @@ async function undoCleanup(actionId, userId, tokens) {
   const action = actionResult.rows[0];
 
   if (action.user_id !== userId) throw new Error('Unauthorized: This action does not belong to you.');
-  if (action.status === 'undone') throw new Error('This cleanup has already been undone.');
+  if (action.status === 'undone') {
+    return { actionId, successCount: 0, failedCount: 0, alreadyUndone: true };
+  }
   if (action.status !== 'complete') throw new Error('Only completed cleanups can be undone.');
   if (new Date(action.expires_at) < new Date()) {
     throw new Error('Undo window has expired (30 days).');

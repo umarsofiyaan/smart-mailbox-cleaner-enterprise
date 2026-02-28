@@ -378,7 +378,15 @@ export default function Dashboard() {
       setHistoryKey(k => k + 1);
       await loadLatestScan();
     } catch (err) {
-      alert(err.message);
+      const msg = err?.message || 'Undo failed.';
+      if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
+        setTimeout(async () => {
+          setHistoryKey(k => k + 1);
+          await loadLatestScan();
+        }, 5000);
+        return;
+      }
+      alert(msg);
     }
   }
 
