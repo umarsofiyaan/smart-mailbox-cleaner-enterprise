@@ -1,6 +1,5 @@
 // src/services/cleanupService.js
 // Handles bulk email cleanup (move to Trash) and undo.
-// Round 3: receipt email on execute + pagination in getCleanupHistory
 
 const {
   getGmailClient,
@@ -25,7 +24,6 @@ async function snapshotOriginalLabels(actionId, metadata, successfulIds) {
 
   if (!rows.length) return;
 
-  // If migration has not been run yet, do not fail cleanup; just skip label snapshots.
   for (let i = 0; i < rows.length; i += 300) {
     const batch = rows.slice(i, i + 300);
     const values = [];
@@ -73,65 +71,61 @@ async function loadOriginalLabelsMap(actionId) {
   }
 }
 
-async function executeCleanup(userId, scanId, category, messageIds, estimatedBytes, tokens) {
-  if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
-
-  logger.info('Starting cleanup', { userId, category, messageCount: messageIds.length });
-
+async function createCleanupAction(userId, scanId, category, estimatedBytes = 0, expectedMessageCount = 0) {
   const actionResult = await query(
     `INSERT INTO cleanup_actions
        (user_id, scan_id, category, message_ids, status, bytes_freed, message_count)
      VALUES ($1, $2, $3, $4, 'pending', $5, $6)
      RETURNING id`,
-    [userId, scanId, category, messageIds, estimatedBytes, messageIds.length]
+    [userId, scanId, category, [], estimatedBytes, expectedMessageCount]
   );
-  const actionId = actionResult.rows[0].id;
+  return actionResult.rows[0];
+}
+
+async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, tokenExpiry = null) {
+  if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
+
+  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokenExpiry);
+  const metadata = await batchGetMessageMetadata(gmail, messageIds);
+  const result = await batchTrashMessages(gmail, messageIds);
+
+  await query(
+    `UPDATE cleanup_actions
+     SET status = 'complete', message_ids = $1, message_count = $2
+     WHERE id = $3`,
+    [result.success, result.success.length, actionId]
+  );
+
+  await snapshotOriginalLabels(actionId, metadata, result.success);
+
+  const undoExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  return {
+    actionId,
+    successCount: result.success.length,
+    failedCount: result.failed.length,
+    failedIds: result.failed,
+    bytesFreed: estimatedBytes,
+    undoExpiresAt,
+  };
+}
+
+async function executeCleanup(userId, scanId, category, messageIds, estimatedBytes, tokens) {
+  if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
+
+  logger.info('Starting cleanup', { userId, category, messageCount: messageIds.length });
+  const action = await createCleanupAction(userId, scanId, category, estimatedBytes, messageIds.length);
 
   try {
-    const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
-    const metadata = await batchGetMessageMetadata(gmail, messageIds);
-    const result = await batchTrashMessages(gmail, messageIds);
-
-    await query(
-      `UPDATE cleanup_actions
-       SET status = 'complete', message_ids = $1, message_count = $2
-       WHERE id = $3`,
-      [result.success, result.success.length, actionId]
-    );
-    await snapshotOriginalLabels(actionId, metadata, result.success);
-
-    const undoExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    logger.info('Cleanup complete', { actionId, successCount: result.success.length });
-
-    // Receipt email — fire-and-forget, never blocks the response
-    query('SELECT email, display_name FROM users WHERE id = $1', [userId])
-      .then(res => {
-        if (res.rows[0] && result.success.length > 0) {
-          const { sendCleanupReceipt } = require('./emailService');
-          sendCleanupReceipt(res.rows[0].email, res.rows[0].display_name, {
-            category, messageCount: result.success.length,
-            bytesFreed: estimatedBytes, undoExpiresAt,
-          });
-        }
-      })
-      .catch(err => logger.warn('Receipt email error', { error: err.message }));
-
-    return {
-      actionId,
-      successCount: result.success.length,
-      failedCount:  result.failed.length,
-      failedIds:    result.failed,
-      bytesFreed:   estimatedBytes,
-      undoExpiresAt,
-    };
-
+    const result = await runCleanupAction(action.id, messageIds, estimatedBytes, tokens, tokens.tokenExpiry);
+    logger.info('Cleanup complete', { actionId: result.actionId, successCount: result.successCount });
+    return result;
   } catch (err) {
     await query(
       "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
-      [err.message, actionId]
+      [err.message, action.id]
     );
-    logger.error('Cleanup failed', err, { actionId });
+    logger.error('Cleanup failed', err, { actionId: action.id });
     throw err;
   }
 }
@@ -146,8 +140,8 @@ async function undoCleanup(actionId, userId, tokens) {
   if (actionResult.rows.length === 0) throw new Error('Cleanup action not found.');
   const action = actionResult.rows[0];
 
-  if (action.user_id !== userId)    throw new Error('Unauthorized: This action does not belong to you.');
-  if (action.status === 'undone')   throw new Error('This cleanup has already been undone.');
+  if (action.user_id !== userId) throw new Error('Unauthorized: This action does not belong to you.');
+  if (action.status === 'undone') throw new Error('This cleanup has already been undone.');
   if (action.status !== 'complete') throw new Error('Only completed cleanups can be undone.');
   if (new Date(action.expires_at) < new Date()) {
     throw new Error('Undo window has expired (30 days).');
@@ -155,7 +149,7 @@ async function undoCleanup(actionId, userId, tokens) {
 
   logger.info('Starting undo', { actionId, userId, category: action.category });
 
-  const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
   const labelsByMessageId = await loadOriginalLabelsMap(actionId);
   const result = labelsByMessageId
     ? await batchRestoreMessagesWithLabels(gmail, action.message_ids, labelsByMessageId)
@@ -167,10 +161,9 @@ async function undoCleanup(actionId, userId, tokens) {
   return { actionId, successCount: result.success.length, failedCount: result.failed.length };
 }
 
-// Paginated history — limit/offset, returns { items, total, hasMore }
 async function getCleanupHistory(userId, limit = 10, offset = 0) {
-  const safeLimit  = Math.min(Math.max(1, parseInt(limit)  || 10), 100);
-  const safeOffset = Math.max(0, parseInt(offset) || 0);
+  const safeLimit = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
+  const safeOffset = Math.max(0, parseInt(offset, 10) || 0);
 
   const [data, count] = await Promise.all([
     query(
@@ -185,25 +178,32 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
     query('SELECT COUNT(*) FROM cleanup_actions WHERE user_id = $1', [userId]),
   ]);
 
-  const total = parseInt(count.rows[0].count);
+  const total = parseInt(count.rows[0].count, 10);
 
   return {
     items: data.rows.map(row => ({
-      id:           row.id,
-      category:     row.category,
-      status:       row.status,
+      id: row.id,
+      category: row.category,
+      status: row.status,
       messageCount: row.message_count,
-      bytesFreed:   row.bytes_freed,
-      executedAt:   row.executed_at,
-      undoneAt:     row.undone_at,
-      expiresAt:    row.expires_at,
+      bytesFreed: row.bytes_freed,
+      executedAt: row.executed_at,
+      undoneAt: row.undone_at,
+      expiresAt: row.expires_at,
       canUndo: row.status === 'complete' && new Date(row.expires_at) > new Date(),
     })),
     total,
-    limit:   safeLimit,
-    offset:  safeOffset,
+    limit: safeLimit,
+    offset: safeOffset,
     hasMore: safeOffset + safeLimit < total,
   };
 }
 
-module.exports = { executeCleanup, undoCleanup, getCleanupHistory };
+module.exports = {
+  executeCleanup,
+  createCleanupAction,
+  runCleanupAction,
+  undoCleanup,
+  getCleanupHistory,
+};
+

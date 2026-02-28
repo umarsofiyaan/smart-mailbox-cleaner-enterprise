@@ -3,21 +3,14 @@ const express = require('express');
 const { body, param, query: qv, validationResult } = require('express-validator');
 const router = express.Router();
 
-const { requireAuth }       = require('../middleware/auth');
-const { cleanupLimiter }    = require('../middleware/security');
-const { getOAuthTokens }    = require('../services/tokenService');
-const { getGmailClient, collectMessageIdsByQuery } = require('../services/gmailService');
-const { executeCleanup, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
-const { checkQuota, consumeQuota, getQuotaSummary }      = require('../services/quotaService');
-const {
-  sendCleanupReceipt,
-  sendQuotaWarningIfNeeded,
-  sendQuotaExhaustedIfNeeded,
-} = require('../services/emailService');
+const { requireAuth } = require('../middleware/auth');
+const { cleanupLimiter } = require('../middleware/security');
+const { getOAuthTokens } = require('../services/tokenService');
+const { createCleanupAction, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
+const { checkQuota, getQuotaSummary } = require('../services/quotaService');
+const { enqueueCleanup } = require('../jobs/worker');
 const { query } = require('../config/database');
-const logger    = require('../utils/logger');
-
-// ─── Execute ──────────────────────────────────────────────────────────────────
+const logger = require('../utils/logger');
 
 router.post(
   '/execute',
@@ -46,16 +39,14 @@ router.post(
     } = req.body;
     const userId = req.user.id;
 
-    // Verify scan belongs to user
     const scanCheck = await query(
-      'SELECT id FROM scans WHERE id = $1 AND user_id = $2', [scanId, userId]
+      'SELECT id FROM scans WHERE id = $1 AND user_id = $2',
+      [scanId, userId]
     );
     if (scanCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
     }
 
-    // Be tolerant of old frontend bundles that forgot to send cleanupMode.
-    // If messageIds are empty but a custom query exists, treat it as query mode.
     if (cleanupMode === 'ids' && messageIds.length === 0 && customQuery) {
       cleanupMode = 'query';
     }
@@ -67,7 +58,6 @@ router.post(
       return res.status(400).json({ error: 'messageIds are required when cleanupMode=ids.' });
     }
 
-    // Check quota
     const quotaCheck = await checkQuota(userId);
     if (!quotaCheck.allowed) {
       return res.status(403).json({
@@ -78,80 +68,98 @@ router.post(
     }
 
     try {
-      const tokens = await getOAuthTokens(userId);
-      let effectiveIds;
+      const expectedCount = cleanupMode === 'query'
+        ? 0
+        : Math.min(messageIds.length, quotaCheck.remaining);
 
-      if (cleanupMode === 'query') {
-        const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
-        effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
-          maxMessages: quotaCheck.remaining,
-        });
-      } else {
-        // Trim message list to quota remaining
-        effectiveIds = messageIds.slice(0, quotaCheck.remaining);
-      }
-
-      if (!effectiveIds.length) {
-        return res.status(400).json({ error: 'No matching emails found for cleanup.' });
-      }
-
-      const result = await executeCleanup(userId, scanId, category, effectiveIds, estimatedBytes, tokens);
-
-      await consumeQuota(userId, result.successCount);
-
-      // ── Fire-and-forget emails ────────────────────────────────────────────
-      setImmediate(async () => {
-        try {
-          const userResult = await query(
-            'SELECT email, display_name FROM users WHERE id = $1', [userId]
-          );
-          if (!userResult.rows[0]) return;
-
-          const { email, display_name } = userResult.rows[0];
-          const updatedQuota = await getQuotaSummary(userId);
-          const isPro              = updatedQuota.isPro;
-          const lifetimeUsed       = updatedQuota.lifetime?.used ?? 0;
-          const lifetimeAllowance  = updatedQuota.lifetime?.allowance ?? 5000;
-          const quotaRemaining     = updatedQuota.lifetime?.remaining ?? 0;
-
-          sendCleanupReceipt(email, display_name, {
-            category,
-            messageCount: result.successCount,
-            bytesFreed: result.bytesFreed,
-            undoExpiresAt: result.undoExpiresAt,
-            quotaRemaining,
-            isPro,
-          });
-
-          if (!isPro) {
-            sendQuotaWarningIfNeeded(userId, email, display_name, lifetimeUsed, lifetimeAllowance);
-            if (quotaRemaining === 0) {
-              sendQuotaExhaustedIfNeeded(userId, email, display_name);
-            }
-          }
-        } catch (e) {
-          logger.error('Post-cleanup email error', e);
-        }
+      const action = await createCleanupAction(userId, scanId, category, estimatedBytes, expectedCount);
+      const jobId = await enqueueCleanup(userId, {
+        actionId: action.id,
+        scanId,
+        category,
+        cleanupMode,
+        customQuery: cleanupMode === 'query' ? customQuery : null,
+        messageIds: cleanupMode === 'ids' ? messageIds : [],
+        estimatedBytes,
       });
 
-      return res.json({
-        success: true,
-        actionId: result.actionId,
-        successCount: result.successCount,
-        failedCount: result.failedCount,
-        bytesFreed: result.bytesFreed,
-        undoExpiresAt: result.undoExpiresAt,
-        message: `${result.successCount} emails moved to Trash. You have 30 days to undo.`,
+      return res.status(202).json({
+        queued: true,
+        jobId,
+        actionId: action.id,
+        status: 'queued',
+        message: 'Cleanup queued. Poll /cleanup/job/:jobId for progress.',
       });
-
     } catch (err) {
-      logger.error('Cleanup execute failed', err, { userId, category });
+      logger.error('Cleanup enqueue failed', err, { userId, category });
       return res.status(500).json({ error: err.message || 'Cleanup failed.' });
     }
   }
 );
 
-// ─── Undo ────────────────────────────────────────────────────────────────────
+router.get(
+  '/job/:jobId',
+  requireAuth,
+  [param('jobId').isUUID()],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    try {
+      const result = await query(
+        `SELECT id, status, attempts, max_attempts, error_message, payload, started_at, completed_at
+         FROM jobs
+         WHERE id = $1 AND user_id = $2 AND job_type = 'CLEANUP'`,
+        [req.params.jobId, req.user.id]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({ error: 'Cleanup job not found.' });
+      }
+
+      const row = result.rows[0];
+      const payload = row.payload || {};
+      const response = {
+        jobId: row.id,
+        status: row.status,
+        attempts: row.attempts,
+        maxAttempts: row.max_attempts,
+        error: row.error_message,
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+        actionId: payload.actionId || null,
+        progress: payload.progress || null,
+        result: payload.result || null,
+      };
+
+      if (row.status === 'complete' && !response.result && response.actionId) {
+        const actionRes = await query(
+          `SELECT id, status, message_count, bytes_freed, expires_at
+           FROM cleanup_actions
+           WHERE id = $1 AND user_id = $2`,
+          [response.actionId, req.user.id]
+        );
+        if (actionRes.rows[0]) {
+          response.result = {
+            actionId: actionRes.rows[0].id,
+            successCount: actionRes.rows[0].message_count || 0,
+            failedCount: 0,
+            bytesFreed: actionRes.rows[0].bytes_freed || 0,
+            undoExpiresAt: actionRes.rows[0].expires_at,
+          };
+        }
+      }
+
+      return res.json(response);
+    } catch (err) {
+      logger.error('Failed to fetch cleanup job status', err, {
+        userId: req.user.id,
+        jobId: req.params.jobId,
+      });
+      return res.status(500).json({ error: 'Failed to fetch cleanup job status.' });
+    }
+  }
+);
 
 router.post(
   '/undo/:actionId',
@@ -176,8 +184,6 @@ router.post(
   }
 );
 
-// ─── History (paginated) ──────────────────────────────────────────────────────
-
 router.get(
   '/history',
   requireAuth,
@@ -192,8 +198,8 @@ router.get(
     try {
       const result = await getCleanupHistory(
         req.user.id,
-        parseInt(req.query.limit)  || 20,
-        parseInt(req.query.offset) || 0
+        parseInt(req.query.limit, 10) || 20,
+        parseInt(req.query.offset, 10) || 0
       );
       return res.json(result);
     } catch (err) {
@@ -202,8 +208,6 @@ router.get(
     }
   }
 );
-
-// ─── Quota ────────────────────────────────────────────────────────────────────
 
 router.get('/quota', requireAuth, async (req, res) => {
   try {
@@ -216,3 +220,4 @@ router.get('/quota', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+

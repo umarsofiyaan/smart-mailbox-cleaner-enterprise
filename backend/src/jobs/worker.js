@@ -10,6 +10,14 @@ const { query }       = require('../config/database');
 const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
 const { executePlaybookRun, enqueuePlaybookRun } = require('../services/playbookService');
+const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
+const { getGmailClient, collectMessageIdsByQuery } = require('../services/gmailService');
+const { runCleanupAction } = require('../services/cleanupService');
+const {
+  sendCleanupReceipt,
+  sendQuotaWarningIfNeeded,
+  sendQuotaExhaustedIfNeeded,
+} = require('../services/emailService');
 const logger          = require('../utils/logger');
 
 const POLL_INTERVAL_MS = 10000;
@@ -83,9 +91,121 @@ async function executeJob(job) {
   } else if (job.job_type === 'PLAYBOOK_RUN') {
     const { runId, playbookId } = job.payload;
     await executePlaybookRun(runId, job.user_id, playbookId);
+  } else if (job.job_type === 'CLEANUP') {
+    await executeCleanupJob(job);
   } else {
     throw new Error(`Unknown job type: ${job.job_type}`);
   }
+}
+
+async function patchJobPayload(jobId, patch) {
+  await query(
+    `UPDATE jobs
+     SET payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+     WHERE id = $1`,
+    [jobId, JSON.stringify(patch)]
+  );
+}
+
+async function executeCleanupJob(job) {
+  const {
+    actionId,
+    scanId,
+    category,
+    cleanupMode = 'ids',
+    customQuery,
+    messageIds = [],
+    estimatedBytes = 0,
+  } = job.payload || {};
+
+  if (!actionId || !scanId || !category) {
+    throw new Error('Invalid CLEANUP job payload.');
+  }
+
+  const quotaCheck = await checkQuota(job.user_id);
+  if (!quotaCheck.allowed) {
+    await query(
+      "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
+      [quotaCheck.reason, actionId]
+    );
+    throw new Error(quotaCheck.reason);
+  }
+
+  const tokens = await getOAuthTokens(job.user_id);
+  let effectiveIds = [];
+
+  if (cleanupMode === 'query') {
+    await patchJobPayload(job.id, { progress: { stage: 'resolving_ids' } });
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+    effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
+      maxMessages: quotaCheck.remaining,
+    });
+  } else {
+    effectiveIds = Array.isArray(messageIds)
+      ? messageIds.slice(0, quotaCheck.remaining)
+      : [];
+  }
+
+  await patchJobPayload(job.id, {
+    progress: { stage: 'moving_to_trash', matchedCount: effectiveIds.length },
+  });
+
+  if (!effectiveIds.length) {
+    await query(
+      "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
+      ['No matching emails found for cleanup.', actionId]
+    );
+    throw new Error('No matching emails found for cleanup.');
+  }
+
+  const result = await runCleanupAction(actionId, effectiveIds, estimatedBytes, tokens, tokens.tokenExpiry);
+  await consumeQuota(job.user_id, result.successCount);
+
+  await patchJobPayload(job.id, {
+    progress: { stage: 'done', matchedCount: effectiveIds.length },
+    result: {
+      actionId: result.actionId,
+      successCount: result.successCount,
+      failedCount: result.failedCount,
+      bytesFreed: result.bytesFreed,
+      undoExpiresAt: result.undoExpiresAt,
+    },
+  });
+
+  setImmediate(async () => {
+    try {
+      const userResult = await query(
+        'SELECT email, display_name FROM users WHERE id = $1',
+        [job.user_id]
+      );
+      if (!userResult.rows[0]) return;
+
+      const { email, display_name } = userResult.rows[0];
+      const updatedQuota = await getQuotaSummary(job.user_id);
+      const isPro = updatedQuota.isPro;
+      const lifetimeUsed = updatedQuota.lifetime?.used ?? 0;
+      const lifetimeAllowance = updatedQuota.lifetime?.allowance ?? 5000;
+      const quotaRemaining = updatedQuota.lifetime?.remaining ?? 0;
+
+      sendCleanupReceipt(email, display_name, {
+        category,
+        messageCount: result.successCount,
+        bytesFreed: result.bytesFreed,
+        undoExpiresAt: result.undoExpiresAt,
+        quotaRemaining,
+        isPro,
+      });
+
+      if (!isPro) {
+        sendQuotaWarningIfNeeded(job.user_id, email, display_name, lifetimeUsed, lifetimeAllowance);
+        if (quotaRemaining === 0) {
+          sendQuotaExhaustedIfNeeded(job.user_id, email, display_name);
+        }
+      }
+    } catch (e) {
+      logger.error('Post-cleanup email error', e);
+    }
+  });
 }
 
 async function enqueueScan(userId, scanId, scanDepth = '12months') {
@@ -204,6 +324,16 @@ async function runScanExpiry() {
   }
 }
 
+async function enqueueCleanup(userId, payload) {
+  const result = await query(
+    `INSERT INTO jobs (user_id, job_type, payload, status, max_attempts)
+     VALUES ($1, 'CLEANUP', $2, 'queued', 1)
+     RETURNING id`,
+    [userId, JSON.stringify(payload)]
+  );
+  return result.rows[0].id;
+}
+
 async function enqueueDuePlaybookSchedules() {
   try {
     const due = await query(
@@ -232,4 +362,4 @@ function stopWorker() {
   logger.info('Background worker stopped');
 }
 
-module.exports = { startWorker, stopWorker, enqueueScan };
+module.exports = { startWorker, stopWorker, enqueueScan, enqueueCleanup };

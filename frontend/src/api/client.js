@@ -93,6 +93,7 @@ export const scanApi = {
 export const cleanupApi = {
   // Large cleanups (hundreds/thousands of emails) can take longer than default 30s.
   execute:    (payload)          => api.post('/cleanup/execute', payload, { timeout: 180000 }),
+  getJob:     (jobId)            => api.get(`/cleanup/job/${jobId}`),
   undo:       (actionId)         => api.post(`/cleanup/undo/${actionId}`),
   // Round 3: accepts { limit, offset } for pagination
   getHistory: (params = {})      => api.get('/cleanup/history', { params }),
