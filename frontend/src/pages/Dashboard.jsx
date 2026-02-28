@@ -27,7 +27,7 @@ function formatGB(bytes) {
 // ── Scan type badge ───────────────────────────────────────────────────────────
 
 function ScanTypeBadge({ scanType }) {
-  if (!scanType || scanType === 'quick') return null;
+  if (scanType !== 'custom') return null;
   return (
     <span className="inline-flex items-center gap-1 text-xs font-semibold bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full ml-1">
       🔍 Custom

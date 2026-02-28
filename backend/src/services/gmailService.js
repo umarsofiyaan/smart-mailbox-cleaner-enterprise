@@ -38,10 +38,12 @@ function sleep(ms) {
 }
 
 /**
- * Get an authenticated Gmail API client
+ * Get an authenticated Gmail API client.
+ * Passing expiry_date lets the googleapis library proactively refresh the
+ * access token before it expires (critical for long-running scans).
  */
-function getGmailClient(accessToken, refreshToken) {
-  const auth = createAuthenticatedClient(accessToken, refreshToken);
+function getGmailClient(accessToken, refreshToken, tokenExpiry) {
+  const auth = createAuthenticatedClient(accessToken, refreshToken, tokenExpiry);
   return google.gmail({ version: 'v1', auth });
 }
 

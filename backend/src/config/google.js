@@ -50,13 +50,15 @@ async function exchangeCode(code) {
 }
 
 /**
- * Create an authenticated OAuth2 client from stored tokens
+ * Create an authenticated OAuth2 client from stored tokens.
+ * tokenExpiry (Unix ms) lets the library auto-refresh before the token expires.
  */
-function createAuthenticatedClient(accessToken, refreshToken) {
+function createAuthenticatedClient(accessToken, refreshToken, tokenExpiry) {
   const client = createOAuthClient();
   client.setCredentials({
-    access_token: accessToken,
+    access_token:  accessToken,
     refresh_token: refreshToken,
+    ...(tokenExpiry ? { expiry_date: tokenExpiry } : {}),
   });
   return client;
 }

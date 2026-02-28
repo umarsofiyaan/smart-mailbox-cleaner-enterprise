@@ -88,7 +88,7 @@ async function executeCleanup(userId, scanId, category, messageIds, estimatedByt
   const actionId = actionResult.rows[0].id;
 
   try {
-    const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken);
+    const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
     const metadata = await batchGetMessageMetadata(gmail, messageIds);
     const result = await batchTrashMessages(gmail, messageIds);
 
@@ -155,7 +155,7 @@ async function undoCleanup(actionId, userId, tokens) {
 
   logger.info('Starting undo', { actionId, userId, category: action.category });
 
-  const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken);
+  const gmail  = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
   const labelsByMessageId = await loadOriginalLabelsMap(actionId);
   const result = labelsByMessageId
     ? await batchRestoreMessagesWithLabels(gmail, action.message_ids, labelsByMessageId)

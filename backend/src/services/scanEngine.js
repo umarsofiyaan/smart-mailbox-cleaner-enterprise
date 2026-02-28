@@ -75,15 +75,32 @@ const CATEGORY_QUERIES = {
 };
 
 /**
- * Restrict query to last 12 months for free tier.
+ * Restrict query to a date window based on scan depth.
+ *
+ * Rules:
+ *  - large_attachments_*  : NEVER restrict by date. Big files from any year are
+ *                           worth finding — this is the highest-value cleanup.
+ *  - old_emails_3yr       : Already scoped to 'older_than:3y'. Adding 'newer_than:365d'
+ *                           creates an IMPOSSIBLE query (can't be both >3yr and <1yr old).
+ *                           Skip for '12months'/'24months'; only run for 'all'.
+ *  - Everything else      : Add a newer_than window to limit API calls.
  */
-function applyDepthFilter(baseQuery, scanDepth) {
-  if (scanDepth === '12months') {
-    return `${baseQuery} newer_than:365d`;
+function applyDepthFilter(baseQuery, scanDepth, categoryKey) {
+  // Large attachments: always scan full history — these are the biggest space hogs
+  // and a 3-year-old 50MB email matters just as much as a recent one.
+  if (categoryKey === 'large_attachments_10mb' || categoryKey === 'large_attachments_5mb') {
+    return baseQuery;
   }
-  if (scanDepth === '24months') {
-    return `${baseQuery} newer_than:730d`;
+
+  // old_emails_3yr already has 'older_than:3y'. Adding 'newer_than:365d' (12mo depth)
+  // or 'newer_than:730d' (24mo depth) makes the query impossible → always 0 results.
+  // Only run this category on 'all' depth scans.
+  if (categoryKey === 'old_emails_3yr') {
+    return scanDepth === 'all' ? baseQuery : null; // null = skip this category
   }
+
+  if (scanDepth === '12months') return `${baseQuery} newer_than:365d`;
+  if (scanDepth === '24months') return `${baseQuery} newer_than:730d`;
   return baseQuery; // 'all' — Pro only
 }
 
@@ -97,7 +114,7 @@ function applyDepthFilter(baseQuery, scanDepth) {
  * @param {string} scanDepth - '12months' | '24months' | 'all'
  */
 async function runScan(scanId, userId, tokens, scanDepth = '12months') {
-  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
+  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
 
   try {
     // Update scan status to running
@@ -128,7 +145,13 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
     for (const [categoryKey, categoryDef] of Object.entries(CATEGORY_QUERIES)) {
       logger.info(`Scanning category: ${categoryKey}`, { scanId });
 
-      const q = applyDepthFilter(categoryDef.query, scanDepth);
+      const q = applyDepthFilter(categoryDef.query, scanDepth, categoryKey);
+
+      // null means this category is incompatible with the chosen scan depth — skip it
+      if (q === null) {
+        logger.info(`Skipping category ${categoryKey} — incompatible with depth '${scanDepth}'`, { scanId });
+        continue;
+      }
 
       let messageIds;
       try {
@@ -257,7 +280,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
  * Produces one category result ("Custom Filter") instead of the 7 preset categories.
  */
 async function runCustomScan(scanId, userId, tokens, customQuery) {
-  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
+  const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
 
   try {
     await query("UPDATE scans SET status = 'running', started_at = NOW() WHERE id = $1", [scanId]);

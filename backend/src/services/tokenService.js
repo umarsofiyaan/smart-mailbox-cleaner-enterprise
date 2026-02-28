@@ -61,7 +61,7 @@ async function getOAuthTokens(userId) {
     accessToken = newTokens.access_token;
   }
 
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, tokenExpiry: expiry.getTime() };
 }
 
 async function refreshAccessToken(userId, refreshToken) {

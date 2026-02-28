@@ -30,7 +30,7 @@ router.use(requireAuth, requireAdmin);
 async function writeAudit(adminId, adminEmail, action, targetUserId, targetEmail, details = {}) {
   try {
     await query(
-      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, detail)
+      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, details)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [adminId, adminEmail || null, action, targetUserId || null, targetEmail || null, JSON.stringify(details)]
     );
@@ -267,7 +267,7 @@ router.get('/audit', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT al.id, al.action, al.detail, al.created_at,
+      `SELECT al.id, al.action, al.details AS detail, al.created_at,
               al.admin_email, al.target_email,
               al.ip_address
        FROM admin_audit_log al
