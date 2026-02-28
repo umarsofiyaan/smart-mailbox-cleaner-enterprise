@@ -160,11 +160,11 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         continue;
       }
 
-      logger.info(`[SCAN DEBUG] Category ${categoryKey}: query="${q}", maxMessages=${maxMessages === Infinity ? 'Infinity' : maxMessages}`, { scanId });
+      logger.info(`[SCAN DEBUG] Category ${categoryKey}: query="${q}", maxMessages=${maxMatches === Infinity ? 'Infinity' : maxMatches}`, { scanId });
       let messageIds;
       const categoryStart = Date.now();
       try {
-        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages });
+        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages: maxMatches });
         logger.info(`[SCAN DEBUG] Category ${categoryKey}: found ${messageIds.length} messages in ${Date.now()-categoryStart}ms`, { scanId });
       } catch (err) {
         const status = err?.response?.status || err?.code;
