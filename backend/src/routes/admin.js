@@ -45,20 +45,6 @@ router.get('/users', async (req, res) => {
   const { search, limit = 50, offset = 0, includeDeleted = 'false' } = req.query;
 
   try {
-    let sql = `
-      SELECT
-        u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.is_admin,
-        u.deleted_at, u.deleted_by,
-        s.plan, s.status AS subscription_status, s.current_period_end,
-        q.lifetime_allowance, q.lifetime_used, q.daily_allowance, q.daily_used,
-        q.daily_quota_granted_at,
-        (SELECT COUNT(*) FROM scans      sc WHERE sc.user_id = u.id AND sc.status = 'complete') AS scan_count,
-        (SELECT COUNT(*) FROM cleanup_actions ca WHERE ca.user_id = u.id AND ca.status = 'complete') AS cleanup_count
-      FROM users u
-      LEFT JOIN subscription_status s ON s.user_id = u.id
-      LEFT JOIN user_quota          q ON q.user_id  = u.id
-    `;
-
     const params  = [];
     const clauses = [];
 
@@ -73,20 +59,38 @@ router.get('/users', async (req, res) => {
       );
     }
 
-    if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
+    const whereClause = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
 
-    // Count query (without pagination)
-    const countSql = sql.replace(
-      /SELECT[\s\S]+?FROM users/,
-      'SELECT COUNT(*) FROM users'
-    );
+    // Separate count query using same alias/joins so WHERE clause works correctly
+    const countSql = `
+      SELECT COUNT(*) FROM users u
+      LEFT JOIN subscription_status s ON s.user_id = u.id
+      LEFT JOIN user_quota          q ON q.user_id  = u.id
+      ${whereClause}
+    `;
 
-    sql += ` ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(parseInt(limit), parseInt(offset));
+    const dataSql = `
+      SELECT
+        u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.is_admin,
+        u.deleted_at, u.deleted_by,
+        s.plan, s.status AS subscription_status, s.current_period_end,
+        q.lifetime_allowance, q.lifetime_used, q.daily_allowance, q.daily_used,
+        q.daily_quota_granted_at,
+        (SELECT COUNT(*) FROM scans sc WHERE sc.user_id = u.id AND sc.status = 'complete') AS scan_count,
+        (SELECT COUNT(*) FROM cleanup_actions cj WHERE cj.user_id = u.id AND cj.status = 'complete') AS cleanup_count
+      FROM users u
+      LEFT JOIN subscription_status s ON s.user_id = u.id
+      LEFT JOIN user_quota          q ON q.user_id  = u.id
+      ${whereClause}
+      ORDER BY u.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    const dataParams = [...params, parseInt(limit), parseInt(offset)];
 
     const [rows, countResult] = await Promise.all([
-      query(sql, params),
-      query(countSql, params.slice(0, -2)),
+      query(dataSql, dataParams),
+      query(countSql, params),
     ]);
 
     return res.json({
