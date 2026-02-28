@@ -163,6 +163,11 @@ export default function Dashboard() {
 
   const isPro       = user?.subscription?.isPro;
   const isRunning   = status === 'running' || status === 'starting';
+  const estimateCleanupMinutes = (count = 0) => {
+    const n = Number(count) || 0;
+    if (n <= 0) return 1;
+    return Math.max(1, Math.ceil(n / 1500));
+  };
 
   // Close profile menu on outside click
   useEffect(() => {
@@ -332,6 +337,22 @@ export default function Dashboard() {
         cleanupMode:    pendingCleanup.cleanupMode || 'ids',
         customQuery:    pendingCleanup.customQuery || undefined,
       });
+
+      if (result?.queued) {
+        const eta = estimateCleanupMinutes(pendingCleanup.messageCount);
+        const queuedCount = pendingCleanup.messageCount?.toLocaleString?.() || pendingCleanup.messageCount || 0;
+        alert(
+          `Cleanup queued for ${queuedCount} emails.\n\n` +
+          `Estimated time: ~${eta} minute${eta > 1 ? 's' : ''}.\n` +
+          `You can leave this page and check Cleanup History later.`
+        );
+        setPendingCleanup(null);
+        setHistoryKey(k => k + 1);
+        // Refresh shortly so user sees pending/completed transition.
+        setTimeout(() => setHistoryKey(k => k + 1), 15000);
+        return;
+      }
+
       setPendingCleanup(null);
       setUndoAction(result);
       setHistoryKey(k => k + 1);

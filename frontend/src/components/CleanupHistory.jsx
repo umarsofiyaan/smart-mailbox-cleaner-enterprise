@@ -157,6 +157,15 @@ export default function CleanupHistory({ onUndoSuccess }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const hasPending = history.some(h => h.status === 'pending');
+    if (!hasPending) return undefined;
+    const timer = setInterval(() => {
+      load();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [history, load]);
+
   async function loadMore() {
     try {
       setLoadingMore(true);
@@ -254,4 +263,3 @@ export default function CleanupHistory({ onUndoSuccess }) {
     </div>
   );
 }
-
