@@ -296,4 +296,57 @@ router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
   });
 });
 
+
+/**
+ * GET /scan/diagnose
+ * Tests Gmail API connectivity and returns the real error if any.
+ * Remove this endpoint before going to production.
+ */
+router.get('/diagnose', requireAuth, async (req, res) => {
+  try {
+    const tokens = await getOAuthTokens(req.user.id);
+    const { getGmailClient, collectMessageIdsByQuery, getStorageQuota } = require('../services/gmailService');
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+
+    const results = {};
+
+    // Test 1: Gmail profile
+    try {
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      results.gmailProfile = { ok: true, email: profile.data.emailAddress, totalMessages: profile.data.messagesTotal };
+    } catch (err) {
+      results.gmailProfile = { ok: false, status: err?.response?.status, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    // Test 2: Drive quota
+    try {
+      const quota = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
+      results.driveQuota = { ok: true, usedGB: (quota.storageUsedBytes / 1e9).toFixed(2) };
+    } catch (err) {
+      results.driveQuota = { ok: false, status: err?.response?.status, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    // Test 3: Simple Gmail search (large attachments)
+    try {
+      const r = await gmail.users.messages.list({
+        userId: 'me',
+        q: 'has:attachment larger:5M -in:trash',
+        maxResults: 5,
+        fields: 'resultSizeEstimate,messages(id)',
+      });
+      results.gmailSearch = { ok: true, estimate: r.data.resultSizeEstimate, firstIds: (r.data.messages || []).map(m => m.id) };
+    } catch (err) {
+      results.gmailSearch = { ok: false, status: err?.response?.status, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    // Test 4: Token scopes
+    results.tokenExpiry = tokens.tokenExpiry ? new Date(tokens.tokenExpiry).toISOString() : 'unknown';
+    results.hasRefreshToken = !!tokens.refreshToken;
+
+    return res.json({ ok: true, userId: req.user.id, results });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

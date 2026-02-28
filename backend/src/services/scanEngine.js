@@ -163,7 +163,21 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       try {
         messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages });
       } catch (err) {
-        logger.warn(`Failed to list messages for category ${categoryKey}`, { err: err.message });
+        const status = err?.response?.status || err?.code;
+        const errMsg = err?.response?.data?.error?.message || err?.message || String(err);
+
+        // Auth errors must bubble up — silently swallowing them makes every scan
+        // appear to complete successfully with 0 results, hiding the real problem.
+        if (status === 401 || status === 403 ||
+            errMsg?.includes('invalid_grant') ||
+            errMsg?.includes('Token has been expired') ||
+            errMsg?.includes('Invalid Credentials')) {
+          logger.error('Gmail API auth error — failing scan visibly', { status, errMsg, scanId, categoryKey });
+          throw new Error(`Gmail API auth failed (${status}): ${errMsg}. Please log out and log back in.`);
+        }
+
+        // Non-auth errors (rate limit, transient 5xx): skip this category only
+        logger.warn(`Skipping category ${categoryKey} after error`, { status, errMsg, scanId });
         messageIds = [];
       }
 
