@@ -44,7 +44,6 @@ app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(generalLimiter);
 
-<<<<<<< HEAD
 // ── Stripe/Razorpay webhook — raw body MUST come before json parser ──────────
 // Only the webhook endpoint needs express.raw(). Mounting the whole subscriptionRoutes
 // here caused all other /subscription/* routes to also run before json() was set up.
@@ -65,10 +64,6 @@ app.post(
     }
   }
 );
-=======
-// ── Stripe/Razorpay webhook — raw body before json parser ───────────────────
-app.use('/subscription/webhook', subscriptionRoutes);
->>>>>>> 6ee4e3093bdfe981d0a2abf43d870b32cd3d62fc
 
 // ── Standard middleware ───────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));

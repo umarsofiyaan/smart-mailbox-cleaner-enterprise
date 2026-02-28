@@ -61,7 +61,6 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-<<<<<<< HEAD
   getGoogleAuthUrl: (stateOrForce, force = false) => {
     // Supports two call signatures:
     //   getGoogleAuthUrl('extension')       → ?state=extension
@@ -80,13 +79,6 @@ export const authApi = {
   logout:        () => api.post('/auth/logout'),
   deleteAccount: () => api.delete('/auth/account'),
   refresh:       (rt) => api.post('/auth/refresh', { refresh_token: rt }),
-=======
-  getGoogleAuthUrl: (state) => api.get(`/auth/google${state ? `?state=${state}` : ''}`),
-  getMe:            ()       => api.get('/auth/me'),
-  logout:           ()       => api.post('/auth/logout'),
-  deleteAccount:    ()       => api.delete('/auth/account'),
-  refresh:          (rt)     => api.post('/auth/refresh', { refresh_token: rt }),
->>>>>>> 6ee4e3093bdfe981d0a2abf43d870b32cd3d62fc
 };
 
 export const scanApi = {
