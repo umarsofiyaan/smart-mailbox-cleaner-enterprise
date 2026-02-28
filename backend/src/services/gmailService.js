@@ -295,6 +295,55 @@ async function batchRestoreMessages(gmail, messageIds) {
 }
 
 /**
+ * Restore messages from Trash and re-apply their original labels.
+ * labelsByMessageId shape: { [messageId]: string[] }
+ */
+async function batchRestoreMessagesWithLabels(gmail, messageIds, labelsByMessageId = {}) {
+  const BATCH_SIZE = 1000;
+  const results = { success: [], failed: [] };
+
+  // Group message IDs by identical label set so we can use batchModify efficiently.
+  const grouped = new Map();
+  for (const id of messageIds) {
+    const labels = Array.from(new Set((labelsByMessageId[id] || []).filter(Boolean)))
+      .filter(l => l !== 'TRASH')
+      .sort();
+    const key = labels.join(',');
+    if (!grouped.has(key)) grouped.set(key, { ids: [], labels });
+    grouped.get(key).ids.push(id);
+  }
+
+  for (const { ids, labels } of grouped.values()) {
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const batch = ids.slice(i, i + BATCH_SIZE);
+
+      try {
+        await withBackoff(() =>
+          gmail.users.messages.batchModify({
+            userId: 'me',
+            requestBody: {
+              ids: batch,
+              removeLabelIds: ['TRASH'],
+              addLabelIds: labels,
+            },
+          })
+        );
+        results.success.push(...batch);
+      } catch (err) {
+        logger.error('batchModify restore-with-labels failed', err, { batchSize: batch.length });
+        results.failed.push(...batch);
+      }
+
+      if (i + BATCH_SIZE < ids.length) {
+        await sleep(1000);
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Check if a thread has replies (thread message count > 1)
  */
 async function getThreadMessageCount(gmail, threadId) {
@@ -322,6 +371,7 @@ module.exports = {
   batchGetMessageMetadata,
   batchTrashMessages,
   batchRestoreMessages,
+  batchRestoreMessagesWithLabels,
   getThreadMessageCount,
   withBackoff,
   sleep,

@@ -36,7 +36,7 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const {
+    let {
       scanId,
       category,
       messageIds = [],
@@ -52,6 +52,12 @@ router.post(
     );
     if (scanCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
+    }
+
+    // Be tolerant of old frontend bundles that forgot to send cleanupMode.
+    // If messageIds are empty but a custom query exists, treat it as query mode.
+    if (cleanupMode === 'ids' && messageIds.length === 0 && customQuery) {
+      cleanupMode = 'query';
     }
 
     if (cleanupMode === 'query' && !customQuery) {

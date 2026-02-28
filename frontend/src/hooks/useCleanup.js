@@ -8,12 +8,26 @@ export function useCleanup() {
   const [lastAction, setLastAction] = useState(null);
   const [error, setError] = useState(null);
 
-  const executeCleanup = useCallback(async ({ scanId, category, messageIds, estimatedBytes }) => {
+  const executeCleanup = useCallback(async ({
+    scanId,
+    category,
+    messageIds,
+    estimatedBytes,
+    cleanupMode = 'ids',
+    customQuery,
+  }) => {
     setExecuting(true);
     setError(null);
 
     try {
-      const response = await cleanupApi.execute({ scanId, category, messageIds, estimatedBytes });
+      const response = await cleanupApi.execute({
+        scanId,
+        category,
+        messageIds,
+        estimatedBytes,
+        cleanupMode,
+        customQuery,
+      });
       setLastAction(response.data);
       return response.data;
     } catch (err) {
