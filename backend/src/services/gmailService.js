@@ -308,12 +308,13 @@ async function batchRestoreMessages(gmail, messageIds) {
 async function batchRestoreMessagesWithLabels(gmail, messageIds, labelsByMessageId = {}) {
   const BATCH_SIZE = 1000;
   const results = { success: [], failed: [] };
+  const NON_RESTORABLE_LABELS = new Set(['TRASH', 'DRAFT']);
 
   // Group message IDs by identical label set so we can use batchModify efficiently.
   const grouped = new Map();
   for (const id of messageIds) {
     const labels = Array.from(new Set((labelsByMessageId[id] || []).filter(Boolean)))
-      .filter(l => l !== 'TRASH')
+      .filter(l => !NON_RESTORABLE_LABELS.has(l))
       .sort();
     const key = labels.join(',');
     if (!grouped.has(key)) grouped.set(key, { ids: [], labels });
@@ -337,7 +338,31 @@ async function batchRestoreMessagesWithLabels(gmail, messageIds, labelsByMessage
         );
         results.success.push(...batch);
       } catch (err) {
-        logger.error('batchModify restore-with-labels failed', err, { batchSize: batch.length });
+        // If some labels are no longer valid (for example DRAFT), still restore from Trash.
+        const message = err?.response?.data?.error?.message || err?.message || '';
+        if (/Invalid label/i.test(message)) {
+          logger.warn('restore-with-labels had invalid labels; retrying without addLabelIds', {
+            batchSize: batch.length,
+            error: message,
+          });
+          try {
+            await withBackoff(() =>
+              gmail.users.messages.batchModify({
+                userId: 'me',
+                requestBody: {
+                  ids: batch,
+                  removeLabelIds: ['TRASH'],
+                },
+              })
+            );
+            results.success.push(...batch);
+            continue;
+          } catch (fallbackErr) {
+            logger.error('fallback restore failed', fallbackErr, { batchSize: batch.length });
+          }
+        } else {
+          logger.error('batchModify restore-with-labels failed', err, { batchSize: batch.length });
+        }
         results.failed.push(...batch);
       }
 
