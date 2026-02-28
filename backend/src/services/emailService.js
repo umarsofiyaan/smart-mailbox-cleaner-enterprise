@@ -9,6 +9,7 @@
 // but NEVER throws — it must never break any user-facing flow.
 
 const logger = require('../utils/logger');
+const { query } = require('../config/database');
 
 const RESEND_API = 'https://api.resend.com/emails';
 const API_KEY   = process.env.RESEND_API_KEY;
@@ -198,9 +199,70 @@ async function sendProUpgradeEmail(email, displayName, periodEnd) {
   });
 }
 
+async function sendQuotaWarningIfNeeded(userId, email, displayName, lifetimeUsed, lifetimeAllowance) {
+  try {
+    if (!userId || !email || !lifetimeAllowance) return;
+
+    const threshold = Math.floor(lifetimeAllowance * 0.8);
+    if (lifetimeUsed < threshold) return;
+
+    const check = await query(
+      'SELECT quota_warning_sent FROM user_quota WHERE user_id = $1',
+      [userId]
+    );
+    if (check.rows[0]?.quota_warning_sent) return;
+
+    await sendQuotaWarningEmail(email, displayName, { lifetimeUsed, lifetimeAllowance });
+    await query(
+      'UPDATE user_quota SET quota_warning_sent = TRUE, updated_at = NOW() WHERE user_id = $1',
+      [userId]
+    );
+  } catch (err) {
+    logger.warn('emailService: sendQuotaWarningIfNeeded failed', { userId, error: err.message });
+  }
+}
+
+async function sendQuotaExhaustedIfNeeded(userId, email, displayName) {
+  try {
+    if (!userId || !email) return;
+
+    const check = await query(
+      'SELECT quota_exhausted_sent FROM user_quota WHERE user_id = $1',
+      [userId]
+    );
+    if (check.rows[0]?.quota_exhausted_sent) return;
+
+    const name = (displayName || 'there').split(' ')[0];
+    const html = shell(`
+      <h1>Your free quota is exhausted</h1>
+      <p>Hi ${name}, you've used your free cleanup credits.</p>
+      <div class="warn"><p>Upgrade to Pro to continue with unlimited cleanups.</p></div>
+      <div style="text-align:center;margin:26px 0">
+        <a href="${APP_URL}/pricing" class="btn">Upgrade to Pro -></a>
+      </div>
+    `);
+
+    await sendEmail({
+      to: email,
+      subject: 'Free cleanup quota exhausted',
+      html,
+      text: `Your free cleanup credits are exhausted. Upgrade: ${APP_URL}/pricing`,
+    });
+
+    await query(
+      'UPDATE user_quota SET quota_exhausted_sent = TRUE, updated_at = NOW() WHERE user_id = $1',
+      [userId]
+    );
+  } catch (err) {
+    logger.warn('emailService: sendQuotaExhaustedIfNeeded failed', { userId, error: err.message });
+  }
+}
+
 module.exports = {
   sendWelcomeEmail,
   sendCleanupReceipt,
   sendQuotaWarningEmail,
+  sendQuotaWarningIfNeeded,
+  sendQuotaExhaustedIfNeeded,
   sendProUpgradeEmail,
 };

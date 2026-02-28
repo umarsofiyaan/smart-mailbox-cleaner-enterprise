@@ -129,14 +129,15 @@ export default function CleanupHistory({ onUndoSuccess }) {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      setError('');
       const res  = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset: 0 });
       const data = res.data;
       setHistory(data.items || []);
       setTotal(data.total || 0);
       setHasMore(data.hasMore || false);
       setOffset(PAGE_SIZE);
-    } catch {
-      // silent — history is bonus feature
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to load cleanup history.');
     } finally {
       setLoading(false);
     }
@@ -184,7 +185,7 @@ export default function CleanupHistory({ onUndoSuccess }) {
     );
   }
 
-  if (history.length === 0) return null;
+  if (history.length === 0 && !error) return null;
 
   const activeCount = history.filter(h => h.canUndo).length;
 

@@ -58,6 +58,7 @@ export function useScan() {
       const msg = err.response?.data?.error || 'Failed to start scan.';
       setError(msg);
       setStatus('failed');
+      throw err;
     }
   }, [pollScan]);
 
@@ -82,6 +83,7 @@ export function useScan() {
       const msg = err.response?.data?.error || 'Failed to start custom scan.';
       setError(msg);
       setStatus('failed');
+      throw err;
     }
   }, [pollScan]);
 

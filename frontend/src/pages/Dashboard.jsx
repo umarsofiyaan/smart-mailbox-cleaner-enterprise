@@ -337,8 +337,16 @@ export default function Dashboard() {
       setHistoryKey(k => k + 1);
       if (!isPro) { loadQuota(); setQuotaRefreshKey(k => k + 1); }
     } catch (err) {
+      const msg = err?.message || 'Cleanup failed.';
+      // If the client timed out, backend may still complete cleanup.
+      if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
+        setTimeout(async () => {
+          await loadLatestScan();
+          setHistoryKey(k => k + 1);
+        }, 4000);
+      }
       setPendingCleanup(null);
-      alert(err.message);
+      alert(msg);
     }
   }
 

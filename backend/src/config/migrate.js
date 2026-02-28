@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS cleanup_actions (
   expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days'
 );
 
+ALTER TABLE cleanup_actions ADD COLUMN IF NOT EXISTS error_message TEXT;
+
 -- Subscription status
 CREATE TABLE IF NOT EXISTS subscription_status (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
