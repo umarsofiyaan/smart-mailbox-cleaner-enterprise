@@ -122,90 +122,98 @@ async function executeCleanupJob(job) {
     throw new Error('Invalid CLEANUP job payload.');
   }
 
-  const quotaCheck = await checkQuota(job.user_id);
-  if (!quotaCheck.allowed) {
-    await query(
-      "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
-      [quotaCheck.reason, actionId]
-    );
-    throw new Error(quotaCheck.reason);
-  }
-
-  const tokens = await getOAuthTokens(job.user_id);
-  let effectiveIds = [];
-
-  if (cleanupMode === 'query') {
-    await patchJobPayload(job.id, { progress: { stage: 'resolving_ids' } });
-    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
-    effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
-      maxMessages: quotaCheck.remaining,
-    });
-  } else {
-    effectiveIds = Array.isArray(messageIds)
-      ? messageIds.slice(0, quotaCheck.remaining)
-      : [];
-  }
-
-  await patchJobPayload(job.id, {
-    progress: { stage: 'moving_to_trash', matchedCount: effectiveIds.length },
-  });
-
-  if (!effectiveIds.length) {
-    await query(
-      "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
-      ['No matching emails found for cleanup.', actionId]
-    );
-    throw new Error('No matching emails found for cleanup.');
-  }
-
-  const result = await runCleanupAction(actionId, effectiveIds, estimatedBytes, tokens, tokens.tokenExpiry);
-  await consumeQuota(job.user_id, result.successCount);
-
-  await patchJobPayload(job.id, {
-    progress: { stage: 'done', matchedCount: effectiveIds.length },
-    result: {
-      actionId: result.actionId,
-      successCount: result.successCount,
-      failedCount: result.failedCount,
-      bytesFreed: result.bytesFreed,
-      undoExpiresAt: result.undoExpiresAt,
-    },
-  });
-
-  setImmediate(async () => {
-    try {
-      const userResult = await query(
-        'SELECT email, display_name FROM users WHERE id = $1',
-        [job.user_id]
+  try {
+    const quotaCheck = await checkQuota(job.user_id);
+    if (!quotaCheck.allowed) {
+      await query(
+        "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
+        [quotaCheck.reason, actionId]
       );
-      if (!userResult.rows[0]) return;
+      throw new Error(quotaCheck.reason);
+    }
 
-      const { email, display_name } = userResult.rows[0];
-      const updatedQuota = await getQuotaSummary(job.user_id);
-      const isPro = updatedQuota.isPro;
-      const lifetimeUsed = updatedQuota.lifetime?.used ?? 0;
-      const lifetimeAllowance = updatedQuota.lifetime?.allowance ?? 5000;
-      const quotaRemaining = updatedQuota.lifetime?.remaining ?? 0;
+    const tokens = await getOAuthTokens(job.user_id);
+    let effectiveIds = [];
 
-      sendCleanupReceipt(email, display_name, {
-        category,
-        messageCount: result.successCount,
+    if (cleanupMode === 'query') {
+      await patchJobPayload(job.id, { progress: { stage: 'resolving_ids' } });
+      const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+      effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
+        maxMessages: quotaCheck.remaining,
+      });
+    } else {
+      effectiveIds = Array.isArray(messageIds)
+        ? messageIds.slice(0, quotaCheck.remaining)
+        : [];
+    }
+
+    await patchJobPayload(job.id, {
+      progress: { stage: 'moving_to_trash', matchedCount: effectiveIds.length },
+    });
+
+    if (!effectiveIds.length) {
+      await query(
+        "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
+        ['No matching emails found for cleanup.', actionId]
+      );
+      throw new Error('No matching emails found for cleanup.');
+    }
+
+    const result = await runCleanupAction(actionId, effectiveIds, estimatedBytes, tokens, tokens.tokenExpiry);
+    await consumeQuota(job.user_id, result.successCount);
+
+    await patchJobPayload(job.id, {
+      progress: { stage: 'done', matchedCount: effectiveIds.length },
+      result: {
+        actionId: result.actionId,
+        successCount: result.successCount,
+        failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
         undoExpiresAt: result.undoExpiresAt,
-        quotaRemaining,
-        isPro,
-      });
+      },
+    });
 
-      if (!isPro) {
-        sendQuotaWarningIfNeeded(job.user_id, email, display_name, lifetimeUsed, lifetimeAllowance);
-        if (quotaRemaining === 0) {
-          sendQuotaExhaustedIfNeeded(job.user_id, email, display_name);
+    setImmediate(async () => {
+      try {
+        const userResult = await query(
+          'SELECT email, display_name FROM users WHERE id = $1',
+          [job.user_id]
+        );
+        if (!userResult.rows[0]) return;
+
+        const { email, display_name } = userResult.rows[0];
+        const updatedQuota = await getQuotaSummary(job.user_id);
+        const isPro = updatedQuota.isPro;
+        const lifetimeUsed = updatedQuota.lifetime?.used ?? 0;
+        const lifetimeAllowance = updatedQuota.lifetime?.allowance ?? 5000;
+        const quotaRemaining = updatedQuota.lifetime?.remaining ?? 0;
+
+        sendCleanupReceipt(email, display_name, {
+          category,
+          messageCount: result.successCount,
+          bytesFreed: result.bytesFreed,
+          undoExpiresAt: result.undoExpiresAt,
+          quotaRemaining,
+          isPro,
+        });
+
+        if (!isPro) {
+          sendQuotaWarningIfNeeded(job.user_id, email, display_name, lifetimeUsed, lifetimeAllowance);
+          if (quotaRemaining === 0) {
+            sendQuotaExhaustedIfNeeded(job.user_id, email, display_name);
+          }
         }
+      } catch (e) {
+        logger.error('Post-cleanup email error', e);
       }
-    } catch (e) {
-      logger.error('Post-cleanup email error', e);
-    }
-  });
+    });
+  } catch (err) {
+    await query(
+      "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2 AND status = 'pending'",
+      [err.message, actionId]
+    );
+    throw err;
+  }
 }
 
 async function enqueueScan(userId, scanId, scanDepth = '12months') {

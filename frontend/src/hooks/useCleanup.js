@@ -2,7 +2,7 @@
 import { useState, useCallback } from 'react';
 import { cleanupApi } from '../api/client';
 
-const CLEANUP_POLL_MS = 2000;
+const CLEANUP_POLL_MS = 8000;
 const CLEANUP_MAX_WAIT_MS = 45 * 60 * 1000;
 
 function sleep(ms) {

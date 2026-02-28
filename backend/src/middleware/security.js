@@ -51,7 +51,12 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait before trying again.' },
-  skip: (req) => req.path === '/health',
+  skip: (req) => {
+    if (req.path === '/health') return true;
+    // Cleanup jobs are polled by the frontend; avoid tripping global limiter.
+    if (req.path.startsWith('/cleanup/job/')) return true;
+    return false;
+  },
 });
 
 /**

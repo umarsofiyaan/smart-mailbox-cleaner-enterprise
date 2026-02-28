@@ -1,7 +1,3 @@
-// src/components/CleanupHistory.jsx
-// Round 3: Paginated — loads 20 at a time with a "Load more" button.
-// Previously loaded all records at once which would slow down for power users.
-
 import { useState, useEffect, useCallback } from 'react';
 import { cleanupApi } from '../api/client';
 
@@ -32,32 +28,36 @@ function timeUntilExpiry(expiresAt) {
 
 const CATEGORY_LABELS = {
   large_attachments_10mb: 'Large attachments (10MB+)',
-  large_attachments_5mb:  'Large attachments (5–10MB)',
-  promotions_90d:         'Old promotional emails',
-  social_90d:             'Old social notifications',
-  old_emails_3yr:         'Emails older than 3 years',
-  expired_calendar:       'Expired calendar invites',
-  drive_attachments:      'Emails with Drive links',
+  large_attachments_5mb: 'Large attachments (5-10MB)',
+  promotions_90d: 'Old promotional emails',
+  social_90d: 'Old social notifications',
+  old_emails_3yr: 'Emails older than 3 years',
+  expired_calendar: 'Expired calendar invites',
+  drive_attachments: 'Emails with Drive links',
+  custom_filter: 'Custom filter',
 };
 
 const CATEGORY_ICONS = {
   large_attachments_10mb: '📎',
-  large_attachments_5mb:  '📎',
-  promotions_90d:         '🏷️',
-  social_90d:             '👥',
-  old_emails_3yr:         '🕐',
-  expired_calendar:       '📅',
-  drive_attachments:      '☁️',
+  large_attachments_5mb: '📎',
+  promotions_90d: '🏷️',
+  social_90d: '👥',
+  old_emails_3yr: '🕐',
+  expired_calendar: '📅',
+  drive_attachments: '☁️',
+  custom_filter: '🧪',
 };
 
 const PAGE_SIZE = 5;
 
 function HistoryRow({ action, onUndo, undoingId }) {
   const [showTooltip, setShowTooltip] = useState(false);
-  const canUndo   = action.canUndo;
+  const canUndo = action.canUndo;
   const isUndoing = undoingId === action.id;
-  const isUndone  = action.status === 'undone';
-  const timeLeft  = canUndo ? timeUntilExpiry(action.expiresAt) : null;
+  const isUndone = action.status === 'undone';
+  const isFailed = action.status === 'failed';
+  const isPending = action.status === 'pending';
+  const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
     <div className="flex items-center gap-4 py-4 border-b border-gray-50 last:border-0">
@@ -70,23 +70,33 @@ function HistoryRow({ action, onUndo, undoingId }) {
           {CATEGORY_LABELS[action.category] || action.category}
         </p>
         <p className="text-xs text-gray-400 mt-0.5">
-          {action.messageCount?.toLocaleString()} emails · {formatMB(action.bytesFreed)} freed · {formatDate(action.executedAt)}
+          {(action.messageCount || 0).toLocaleString()} emails · {formatMB(action.bytesFreed)} freed · {formatDate(action.executedAt)}
         </p>
+        {isPending && (
+          <p className="text-xs text-indigo-600 mt-0.5 font-medium">Processing in background...</p>
+        )}
+        {isFailed && (
+          <p className="text-xs text-red-600 mt-0.5 font-medium">
+            Failed: {action.errorMessage || 'Cleanup did not complete.'}
+          </p>
+        )}
         {timeLeft && <p className="text-xs text-orange-500 mt-0.5 font-medium">{timeLeft}</p>}
       </div>
 
       <div className="flex-shrink-0 relative">
-        {isUndone ? (
-          <span className="text-xs font-medium text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">
-            Restored
-          </span>
+        {isPending ? (
+          <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg">Running</span>
+        ) : isFailed ? (
+          <span className="text-xs font-medium text-red-700 bg-red-50 px-3 py-1.5 rounded-lg">Failed</span>
+        ) : isUndone ? (
+          <span className="text-xs font-medium text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">Restored</span>
         ) : canUndo ? (
           <button
             onClick={() => onUndo(action.id)}
             disabled={isUndoing}
             className="text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
           >
-            {isUndoing ? 'Restoring…' : 'Undo'}
+            {isUndoing ? 'Restoring...' : 'Undo'}
           </button>
         ) : (
           <div
@@ -102,9 +112,11 @@ function HistoryRow({ action, onUndo, undoingId }) {
             </button>
             {showTooltip && (
               <div className="absolute right-0 bottom-full mb-2 w-64 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-xl z-10">
-                <p className="font-semibold mb-0.5">Undo window expired</p>
+                <p className="font-semibold mb-0.5">Undo unavailable</p>
                 <p className="text-gray-300 leading-snug">
-                  Gmail purges Trash after 30 days. These emails cannot be recovered.
+                  {action.status === 'complete'
+                    ? 'Undo window expired after 30 days.'
+                    : 'This cleanup did not complete, so there is nothing to undo.'}
                 </p>
                 <div className="absolute right-4 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900" />
               </div>
@@ -117,20 +129,20 @@ function HistoryRow({ action, onUndo, undoingId }) {
 }
 
 export default function CleanupHistory({ onUndoSuccess }) {
-  const [history,     setHistory]     = useState([]);
-  const [total,       setTotal]       = useState(0);
-  const [hasMore,     setHasMore]     = useState(false);
-  const [offset,      setOffset]      = useState(0);
-  const [loading,     setLoading]     = useState(true);
+  const [history, setHistory] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [undoingId,   setUndoingId]   = useState(null);
-  const [error,       setError]       = useState('');
+  const [undoingId, setUndoingId] = useState(null);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const res  = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset: 0 });
+      const res = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset: 0 });
       const data = res.data;
       setHistory(data.items || []);
       setTotal(data.total || 0);
@@ -148,13 +160,13 @@ export default function CleanupHistory({ onUndoSuccess }) {
   async function loadMore() {
     try {
       setLoadingMore(true);
-      const res  = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset });
+      const res = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset });
       const data = res.data;
       setHistory(prev => [...prev, ...(data.items || [])]);
       setHasMore(data.hasMore || false);
       setOffset(prev => prev + PAGE_SIZE);
     } catch {
-      // silent
+      // keep current list
     } finally {
       setLoadingMore(false);
     }
@@ -165,7 +177,7 @@ export default function CleanupHistory({ onUndoSuccess }) {
     setError('');
     try {
       await cleanupApi.undo(actionId);
-      await load();           // reload from page 1 to reflect updated status
+      await load();
       onUndoSuccess?.();
     } catch (err) {
       setError(err.response?.data?.error || 'Undo failed. Please try again.');
@@ -229,23 +241,17 @@ export default function CleanupHistory({ onUndoSuccess }) {
             disabled={loadingMore}
             className="w-full text-sm text-brand-600 font-semibold hover:text-brand-700 py-2 rounded-xl hover:bg-brand-50 transition-colors disabled:opacity-50"
           >
-            {loadingMore ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-3.5 h-3.5 border-2 border-brand-300 border-t-brand-600 rounded-full animate-spin" />
-                Loading…
-              </span>
-            ) : (
-              `Load more (${total - history.length} remaining)`
-            )}
+            {loadingMore ? 'Loading...' : `Load more (${total - history.length} remaining)`}
           </button>
         </div>
       )}
 
       <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
         <p className="text-xs text-gray-400">
-          &#8635; Emails are moved to Trash, not permanently deleted. Gmail purges Trash after 30 days.
+          Emails are moved to Trash, not permanently deleted. Gmail purges Trash after 30 days.
         </p>
       </div>
     </div>
   );
 }
+

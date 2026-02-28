@@ -168,7 +168,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
   const [data, count] = await Promise.all([
     query(
       `SELECT id, category, status, message_count, bytes_freed,
-              executed_at, undone_at, expires_at
+              executed_at, undone_at, expires_at, error_message
        FROM cleanup_actions
        WHERE user_id = $1
        ORDER BY executed_at DESC
@@ -190,6 +190,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
       executedAt: row.executed_at,
       undoneAt: row.undone_at,
       expiresAt: row.expires_at,
+      errorMessage: row.error_message || null,
       canUndo: row.status === 'complete' && new Date(row.expires_at) > new Date(),
     })),
     total,
@@ -206,4 +207,3 @@ module.exports = {
   undoCleanup,
   getCleanupHistory,
 };
-
