@@ -1,0 +1,36 @@
+{
+  "name": "smart-mailbox-cleaner-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Smart Mailbox Cleaner",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "migrate": "node src/config/migrate.js",
+    "check:syntax": "find src -name '*.js' -print0 | xargs -0 -n1 node -c"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "googleapis": "^140.0.0",
+    "pg": "^8.11.3",
+    "razorpay": "^2.9.2",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.1.5",
+    "dotenv": "^16.3.1",
+    "crypto-js": "^4.2.0",
+    "uuid": "^9.0.0",
+    "morgan": "^1.10.0",
+    "express-validator": "^7.0.1",
+    "cookie-parser": "^1.4.6",
+    "@sentry/node": "^7.99.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}
