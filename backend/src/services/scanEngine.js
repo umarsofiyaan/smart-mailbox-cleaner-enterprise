@@ -166,17 +166,26 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         const status = err?.response?.status || err?.code;
         const errMsg = err?.response?.data?.error?.message || err?.message || String(err);
 
-        // Auth errors must bubble up — silently swallowing them makes every scan
-        // appear to complete successfully with 0 results, hiding the real problem.
+        // Auth errors — bubble up and fail the scan visibly
         if (status === 401 || status === 403 ||
             errMsg?.includes('invalid_grant') ||
             errMsg?.includes('Token has been expired') ||
             errMsg?.includes('Invalid Credentials')) {
-          logger.error('Gmail API auth error — failing scan visibly', { status, errMsg, scanId, categoryKey });
+          logger.error('Gmail API auth error — failing scan', { status, errMsg, scanId, categoryKey });
           throw new Error(`Gmail API auth failed (${status}): ${errMsg}. Please log out and log back in.`);
         }
 
-        // Non-auth errors (rate limit, transient 5xx): skip this category only
+        // Network errors — bubble up so we know if Render can't reach Google
+        const isNetworkError = err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT' ||
+          err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED' ||
+          errMsg?.includes('ECONNRESET') || errMsg?.includes('ETIMEDOUT') ||
+          errMsg?.includes('network') || errMsg?.includes('socket');
+        if (isNetworkError) {
+          logger.error('Gmail API network error — outbound connection blocked?', { code: err?.code, errMsg, scanId, categoryKey });
+          throw new Error(`Gmail API network error (${err?.code || 'unknown'}): ${errMsg}. Outbound connections to Google may be blocked on this server.`);
+        }
+
+        // Non-auth, non-network errors (rate limit, transient 5xx): skip this category only
         logger.warn(`Skipping category ${categoryKey} after error`, { status, errMsg, scanId });
         messageIds = [];
       }

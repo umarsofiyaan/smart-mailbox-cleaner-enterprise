@@ -302,7 +302,95 @@ router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
  * Tests Gmail API connectivity and returns the real error if any.
  * Remove this endpoint before going to production.
  */
-router.get('/diagnose', requireAuth, async (req, res) => {
+/**
+ * GET /scan/diagnose?token=ACCESS_TOKEN
+ * Tests Gmail API connectivity. Accepts token via query param to bypass CORS.
+ * REMOVE THIS ENDPOINT BEFORE GOING TO PRODUCTION.
+ */
+router.get('/diagnose', async (req, res) => {
+  // Allow token via query param so it's callable from the browser address bar
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Pass ?token=YOUR_ACCESS_TOKEN in the URL' });
+
+  // Verify it's a valid JWT and get user
+  let userId;
+  try {
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+    userId = decoded.userId || decoded.sub || decoded.id;
+    if (!userId) throw new Error('No userId in token');
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token: ' + err.message });
+  }
+
+  try {
+    const tokens = await getOAuthTokens(userId);
+    const { getGmailClient, getStorageQuota } = require('../services/gmailService');
+    const { google } = require('googleapis');
+    const { createAuthenticatedClient } = require('../config/google');
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+
+    const results = {};
+
+    // Test 1: Can we reach Google at all? (simple DNS + TCP test)
+    try {
+      const https = require('https');
+      await new Promise((resolve, reject) => {
+        const req2 = https.get('https://www.googleapis.com/', { timeout: 5000 }, resolve);
+        req2.on('error', reject);
+        req2.on('timeout', () => reject(new Error('TCP timeout after 5s')));
+      });
+      results.googleReachable = { ok: true };
+    } catch (err) {
+      results.googleReachable = { ok: false, error: err.message, code: err.code };
+    }
+
+    // Test 2: Gmail profile API call
+    try {
+      const profile = await Promise.race([
+        gmail.users.getProfile({ userId: 'me' }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout 8s')), 8000))
+      ]);
+      results.gmailProfile = { ok: true, email: profile.data.emailAddress, total: profile.data.messagesTotal };
+    } catch (err) {
+      results.gmailProfile = { ok: false, status: err?.response?.status, code: err?.code, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    // Test 3: Gmail search (small)
+    try {
+      const r = await Promise.race([
+        gmail.users.messages.list({ userId: 'me', q: 'has:attachment larger:5M -in:trash', maxResults: 5 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout 8s')), 8000))
+      ]);
+      results.gmailSearch = { ok: true, estimate: r.data.resultSizeEstimate, count: (r.data.messages || []).length };
+    } catch (err) {
+      results.gmailSearch = { ok: false, status: err?.response?.status, code: err?.code, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    // Test 4: Drive quota
+    try {
+      const q = await Promise.race([
+        getStorageQuota(tokens.accessToken, tokens.refreshToken),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout 8s')), 8000))
+      ]);
+      results.driveQuota = { ok: true, usedGB: (q.storageUsedBytes / 1e9).toFixed(2) };
+    } catch (err) {
+      results.driveQuota = { ok: false, status: err?.response?.status, code: err?.code, error: err?.response?.data?.error?.message || err.message };
+    }
+
+    results.tokenExpiry = tokens.tokenExpiry ? new Date(tokens.tokenExpiry).toISOString() : 'unknown';
+    results.hasRefreshToken = !!tokens.refreshToken;
+
+    return res.json({ ok: true, userId, results });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /scan/diagnose-old (original requireAuth version, kept for reference)
+ */
+router.get('/diagnose-OLD', requireAuth, async (req, res) => {
   try {
     const tokens = await getOAuthTokens(req.user.id);
     const { getGmailClient, collectMessageIdsByQuery, getStorageQuota } = require('../services/gmailService');
