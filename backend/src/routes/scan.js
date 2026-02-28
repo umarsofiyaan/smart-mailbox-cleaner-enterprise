@@ -84,7 +84,6 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
  * GET /scan/user/latest
  * Get the most recent completed scan for the user.
  */
@@ -133,8 +132,6 @@ router.get('/user/history', requireAuth, async (req, res) => {
 });
 
 /**
-=======
->>>>>>> 6ee4e3093bdfe981d0a2abf43d870b32cd3d62fc
  * GET /scan/:scanId
  * Poll scan status and results.
  */
@@ -186,57 +183,7 @@ router.get('/:scanId', requireAuth, async (req, res) => {
   });
 });
 
-<<<<<<< HEAD
 
-=======
-/**
- * GET /scan/latest
- * Get the most recent completed scan for the user.
- */
-router.get('/user/latest', requireAuth, async (req, res) => {
-  const result = await query(
-    `SELECT id FROM scans
-     WHERE user_id = $1 AND status = 'complete'
-     ORDER BY completed_at DESC LIMIT 1`,
-    [req.user.id]
-  );
-
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: 'No completed scans found.' });
-  }
-
-  // Redirect to the scan detail endpoint
-  return res.json({ scanId: result.rows[0].id });
-});
-
-/**
- * GET /scan/history
- * List recent scans for the user.
- */
-router.get('/user/history', requireAuth, async (req, res) => {
-  const result = await query(
-    `SELECT id, status, scan_depth, total_messages_scanned,
-            estimated_bytes_freeable, started_at, completed_at
-     FROM scans
-     WHERE user_id = $1
-     ORDER BY started_at DESC
-     LIMIT 10`,
-    [req.user.id]
-  );
-
-  return res.json({
-    scans: result.rows.map(s => ({
-      id: s.id,
-      status: s.status,
-      scanDepth: s.scan_depth,
-      messagesScanned: s.total_messages_scanned,
-      estimatedFreeableGB: parseFloat(((s.estimated_bytes_freeable || 0) / (1024 ** 3)).toFixed(2)),
-      startedAt: s.started_at,
-      completedAt: s.completed_at,
-    })),
-  });
-});
->>>>>>> 6ee4e3093bdfe981d0a2abf43d870b32cd3d62fc
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
