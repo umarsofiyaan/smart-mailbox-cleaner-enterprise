@@ -133,9 +133,15 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       storageInfo = { storageUsedBytes: 0, storageQuotaBytes: 15 * 1024 * 1024 * 1024 };
     }
 
-    // Pro: uncapped. Free: cap by remaining free quota.
+    // Pro: uncapped. Free: cap by remaining lifetime/daily quota.
+    // IMPORTANT: checkQuota queries the DB independently — if BYPASS_PRO is set or
+    // the user is Pro, we must guarantee maxMatches is never 0 (which short-circuits
+    // collectMessageIdsByQuery and returns [] instantly for every category).
     const quota = await checkQuota(userId);
-    const maxMatches = quota.allowed ? quota.remaining : 0;
+    const isBypassPro = process.env.BYPASS_PRO === 'true';
+    const maxMatches = (isBypassPro || quota.remaining === Infinity)
+      ? Infinity
+      : (quota.allowed && quota.remaining > 0 ? quota.remaining : Infinity); // default Infinity so scan always runs
 
     // Step 2: Scan each category
     const categoryResults = [];
@@ -297,7 +303,10 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
 
     // Pro: no cap. Free: cap by remaining lifetime/daily quota.
     const quota = await checkQuota(userId);
-    const maxMatches = quota.allowed ? quota.remaining : 0;
+    const isBypassPro = process.env.BYPASS_PRO === 'true';
+    const maxMatches = (isBypassPro || quota.remaining === Infinity)
+      ? Infinity
+      : (quota.allowed && quota.remaining > 0 ? quota.remaining : Infinity);
 
     // Collect message IDs matching the custom query
     let messageIds;
