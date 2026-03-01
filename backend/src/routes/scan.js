@@ -222,7 +222,6 @@ router.post('/preview-custom', requireAuth, async (req, res) => {
   try {
     const tokens = await getOAuthTokens(req.user.id);
     const { getGmailClient } = require('../services/gmailService');
-    const { checkQuota } = require('../services/quotaService');
 
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
     const q = buildCustomQuery(req.body);
@@ -234,13 +233,7 @@ router.post('/preview-custom', requireAuth, async (req, res) => {
       fields: 'resultSizeEstimate,nextPageToken',
     });
 
-    const rawEstimate = response.data.resultSizeEstimate || 0;
-    const quota = await checkQuota(req.user.id);
-    const effectiveCap = quota.allowed ? quota.remaining : 0;
-    const estimate = Number.isFinite(effectiveCap)
-      ? Math.min(rawEstimate, effectiveCap)
-      : rawEstimate;
-
+    const estimate = Number(response.data.resultSizeEstimate || 0);
     return res.json({ estimate, query: q });
   } catch (err) {
     logger.error('Custom scan preview failed', { err: err.message });
