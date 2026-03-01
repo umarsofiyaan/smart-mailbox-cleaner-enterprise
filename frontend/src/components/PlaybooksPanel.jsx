@@ -62,6 +62,7 @@ export default function PlaybooksPanel() {
   const [insights, setInsights] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [draft, setDraft] = useState(defaultDraft());
   const [editingId, setEditingId] = useState(null);
 
@@ -89,6 +90,7 @@ export default function PlaybooksPanel() {
     if (!draft.name.trim() || !draft.query.trim()) return;
     setLoading(true);
     setError('');
+    setInfo('');
     try {
       await automationApi.createPlaybook({
         name: draft.name.trim(),
@@ -113,6 +115,7 @@ export default function PlaybooksPanel() {
   async function saveEdit(item) {
     setLoading(true);
     setError('');
+    setInfo('');
     try {
       await automationApi.updatePlaybook(item.id, {
         name: item.name,
@@ -138,6 +141,7 @@ export default function PlaybooksPanel() {
     if (!window.confirm(`Delete playbook "${item.name}"?`)) return;
     setLoading(true);
     setError('');
+    setInfo('');
     try {
       await automationApi.deletePlaybook(item.id);
       await load();
@@ -151,10 +155,14 @@ export default function PlaybooksPanel() {
   async function previewPlaybook(item) {
     setLoading(true);
     setError('');
+    setInfo('');
     try {
       const res = await automationApi.previewPlaybook(item.id);
       const p = res.data.preview;
-      alert(`Matches: ${p.matchedCount.toLocaleString()}\nEstimated cleanup: ${formatBytes(p.estimatedBytes)}\nQuery: ${p.query}`);
+      setInfo(
+        `Preview: ${p.matchedCount.toLocaleString()} matches, ` +
+        `${formatBytes(p.estimatedBytes)} estimated cleanup.`
+      );
     } catch (e) {
       setError(e?.response?.data?.error || 'Failed to preview playbook.');
     } finally {
@@ -165,8 +173,10 @@ export default function PlaybooksPanel() {
   async function runNow(item) {
     setLoading(true);
     setError('');
+    setInfo('');
     try {
       await automationApi.runPlaybook(item.id);
+      setInfo(`Playbook "${item.name}" queued successfully.`);
       await load();
     } catch (e) {
       setError(e?.response?.data?.error || 'Failed to run playbook.');
@@ -237,6 +247,7 @@ export default function PlaybooksPanel() {
           </button>
         </form>
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+        {info && <p className="text-sm text-indigo-600 mt-3">{info}</p>}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-5">

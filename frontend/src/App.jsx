@@ -26,7 +26,8 @@ function AdminRoute({ children }) {
       <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
     </div>
   );
-  return user ? children : <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  return user.isAdmin ? children : <Navigate to="/dashboard" replace />;
 }
 
 function ExtensionAuth() {

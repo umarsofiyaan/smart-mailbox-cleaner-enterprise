@@ -142,7 +142,13 @@ async function checkQuota(userId) {
     };
   } catch (err) {
     logger.error('Failed to check quota', err, { userId });
-    return { allowed: true, remaining: Infinity, reason: 'Error checking quota' };
+    // Fail closed for free users when quota state cannot be read.
+    // This prevents accidental unlimited access on DB/transient failures.
+    return {
+      allowed: false,
+      remaining: 0,
+      reason: 'Could not verify quota right now. Please retry in a moment.',
+    };
   }
 }
 

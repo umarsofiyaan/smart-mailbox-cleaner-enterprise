@@ -33,10 +33,15 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   // Chrome extensions use chrome-extension:// protocol
   `chrome-extension://${process.env.EXTENSION_ID}`,
-];
+].filter(Boolean);
 
 const corsMiddleware = cors({
-  origin: true, // Allow all origins for now
+  origin(origin, cb) {
+    // Allow same-origin/non-browser requests (no Origin header), e.g. health checks.
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS policy: origin not allowed'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

@@ -160,6 +160,7 @@ export default function Dashboard() {
   const [showCustomScan,        setShowCustomScan]        = useState(false);
   const [customScanError,       setCustomScanError]       = useState(''); // separate error for custom scan init failures
   const [taskNotice,            setTaskNotice]            = useState(null);
+  const [uiNotice,              setUiNotice]              = useState(null);
   const profileMenuRef = useRef(null);
 
   const isPro       = user?.subscription?.isPro;
@@ -216,6 +217,7 @@ export default function Dashboard() {
 
   function handleQuickScan() {
     setTaskNotice(null);
+    setUiNotice(null);
     setCustomScanError('');
     startScan(isPro ? 'all' : '12months');
   }
@@ -228,6 +230,7 @@ export default function Dashboard() {
 
   async function handleCustomScanStart(params) {
     setTaskNotice(null);
+    setUiNotice(null);
     setShowCustomScan(false);
     setCustomScanError('');
 
@@ -320,9 +323,12 @@ export default function Dashboard() {
         },
       });
       setShowCustomScan(false);
-      alert('Playbook created successfully.');
+      setUiNotice({ type: 'success', message: 'Playbook created successfully.' });
     } catch (err) {
-      alert(err?.response?.data?.error || 'Failed to create playbook.');
+      setUiNotice({
+        type: 'error',
+        message: err?.response?.data?.error || 'Failed to create playbook.',
+      });
     }
   }
 
@@ -330,6 +336,7 @@ export default function Dashboard() {
 
   function handleCleanupRequest(categoryData) {
     setTaskNotice(null);
+    setUiNotice(null);
     if (!isPro && quotaRemaining <= 0) {
       document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
       return;
@@ -352,11 +359,13 @@ export default function Dashboard() {
       if (result?.queued) {
         const eta = estimateCleanupMinutes(pendingCleanup.messageCount);
         const queuedCount = pendingCleanup.messageCount?.toLocaleString?.() || pendingCleanup.messageCount || 0;
-        alert(
-          `Cleanup queued for ${queuedCount} emails.\n\n` +
-          `Estimated time: ~${eta} minute${eta > 1 ? 's' : ''}.\n` +
-          `You can leave this page and check Cleanup History later.`
-        );
+        setUiNotice({
+          type: 'info',
+          message:
+            `Cleanup queued for ${queuedCount} emails. ` +
+            `Estimated time ~${eta} minute${eta > 1 ? 's' : ''}. ` +
+            `You can leave this page and check Cleanup History later.`,
+        });
         setPendingCleanup(null);
         setHistoryKey(k => k + 1);
         // Refresh shortly so user sees pending/completed transition.
@@ -387,12 +396,13 @@ export default function Dashboard() {
         }, 4000);
       }
       setPendingCleanup(null);
-      alert(msg);
+      setUiNotice({ type: 'error', message: msg });
     }
   }
 
   async function handleUndo(actionId) {
     setTaskNotice(null);
+    setUiNotice(null);
     try {
       await undoCleanup(actionId);
       setUndoAction(null);
@@ -415,7 +425,7 @@ export default function Dashboard() {
         }, 5000);
         return;
       }
-      alert(msg);
+      setUiNotice({ type: 'error', message: msg });
     }
   }
 
@@ -579,6 +589,33 @@ export default function Dashboard() {
             >
               {taskNotice.type === 'scan' ? 'Go to active scan' : 'Go to active cleanup/undo'}
             </button>
+          </div>
+        )}
+
+        {uiNotice && (
+          <div className={`border rounded-xl px-5 py-4 mb-6 ${
+            uiNotice.type === 'error'
+              ? 'bg-red-50 border-red-100'
+              : uiNotice.type === 'success'
+                ? 'bg-green-50 border-green-100'
+                : 'bg-indigo-50 border-indigo-100'
+          }`}>
+            <div className="flex items-start justify-between gap-3">
+              <p className={`font-medium ${
+                uiNotice.type === 'error'
+                  ? 'text-red-700'
+                  : uiNotice.type === 'success'
+                    ? 'text-green-700'
+                    : 'text-indigo-700'
+              }`}>{uiNotice.message}</p>
+              <button
+                onClick={() => setUiNotice(null)}
+                className="text-gray-400 hover:text-gray-600 text-sm"
+                aria-label="Dismiss notice"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
 

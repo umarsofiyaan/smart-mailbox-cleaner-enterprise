@@ -4,6 +4,7 @@ import { subscriptionApi } from '../api/client';
 export default function SubscriptionModal({ user, onClose }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [info, setInfo] = useState(null);
 
   const subscription = user?.subscription || {};
   const plan = subscription.plan || 'free';
@@ -23,11 +24,11 @@ export default function SubscriptionModal({ user, onClose }) {
 
     setIsLoading(true);
     setError(null);
+    setInfo(null);
 
     try {
       await subscriptionApi.cancel();
-      alert('Subscription canceled. You\'ll keep Pro access until the end of your billing period.');
-      onClose();
+      setInfo('Subscription canceled. You will keep Pro access until the end of your billing period.');
     } catch (err) {
       setError(err.message || 'Failed to cancel subscription. Please try again.');
     } finally {
@@ -102,6 +103,11 @@ export default function SubscriptionModal({ user, onClose }) {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6">
             <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+        {info && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
+            <p className="text-sm text-green-700">{info}</p>
           </div>
         )}
 

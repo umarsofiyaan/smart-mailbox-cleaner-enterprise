@@ -106,6 +106,7 @@ export const subscriptionApi = {
   createCheckout: () => api.post('/subscription/checkout'),
   createPortal:   () => api.post('/subscription/portal'),
   getStatus:      () => api.get('/subscription/status'),
+  cancel:         () => api.post('/subscription/cancel'),
 };
 
 export const automationApi = {

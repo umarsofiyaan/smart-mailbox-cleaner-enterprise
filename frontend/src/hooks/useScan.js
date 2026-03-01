@@ -1,5 +1,5 @@
 // src/hooks/useScan.js
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { scanApi } from '../api/client';
 
 const POLL_INTERVAL_MS = 3000;
@@ -17,6 +17,8 @@ export function useScan() {
       pollRef.current = null;
     }
   };
+
+  useEffect(() => () => stopPolling(), []);
 
   const pollScan = useCallback(async (id) => {
     try {
