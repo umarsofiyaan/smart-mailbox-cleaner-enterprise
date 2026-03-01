@@ -119,10 +119,10 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {[
-              { icon: 'SEC', title: 'Never reads content', desc: 'We only access metadata - size, labels, dates' },
-              { icon: 'BIN', title: 'Trash, not delete', desc: 'Emails moved to Trash. Gmail purges after 30 days' },
-              { icon: 'UNDO', title: '30-day undo', desc: 'Restore any cleanup from your dashboard' },
-              { icon: 'AUTH', title: 'Google OAuth', desc: 'Sign in securely. Revoke access anytime' },
+              { icon: '🔒', title: 'Never reads content', desc: 'We only access metadata - size, labels, dates' },
+              { icon: '🗑️', title: 'Trash, not delete', desc: 'Emails moved to Trash. Gmail purges after 30 days' },
+              { icon: '↩️', title: '30-day undo', desc: 'Restore any cleanup from your dashboard' },
+              { icon: '🔐', title: 'Google OAuth', desc: 'Sign in securely. Revoke access anytime' },
             ].map((f, i) => (
               <div key={i} className="flex flex-col gap-1.5">
                 <span className="text-2xl">{f.icon}</span>

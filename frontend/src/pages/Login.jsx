@@ -130,10 +130,10 @@ export default function Login() {
           {/* Features */}
           <div className="mt-8 space-y-3">
             {[
-              { icon: 'SEC', text: 'We never read your email content' },
-              { icon: 'BIN', text: 'Emails moved to Trash, never deleted permanently' },
-              { icon: 'UNDO', text: 'Undo any cleanup within 30 days' },
-              { icon: 'SCAN', text: 'See exactly how much space you can free' },
+              { icon: '🔒', text: 'We never read your email content' },
+              { icon: '🗑️', text: 'Emails moved to Trash, never deleted permanently' },
+              { icon: '↩️', text: 'Undo any cleanup within 30 days' },
+              { icon: '📊', text: 'See exactly how much space you can free' },
             ].map((f, i) => (
               <div key={i} className="flex items-center gap-3">
                 <span className="text-lg">{f.icon}</span>
