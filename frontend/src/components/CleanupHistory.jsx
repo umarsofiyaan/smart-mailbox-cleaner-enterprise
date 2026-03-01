@@ -59,7 +59,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const isPending = action.status === 'pending';
   const processedCount = action.processedCount || 0;
   const movedCount = action.movedCount || action.messageCount || 0;
-  const estimatedNewInTrash = action.estimatedNewInTrash || 0;
+  const conversationCount = action.conversationCount || 0;
   const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
@@ -73,11 +73,17 @@ function HistoryRow({ action, onUndo, undoingId }) {
           {CATEGORY_LABELS[action.category] || action.category}
         </p>
         <p className="text-xs text-gray-400 mt-0.5">
-          {(action.messageCount || 0).toLocaleString()} emails - {formatMB(action.bytesFreed)} freed - {formatDate(action.executedAt)}
+          {(action.messageCount || 0).toLocaleString()} messages - {formatMB(action.bytesFreed)} freed - {formatDate(action.executedAt)}
         </p>
         {!isPending && processedCount > 0 && (
           <p className="text-xs text-gray-500 mt-0.5">
-            Processed {processedCount.toLocaleString()} - moved {movedCount.toLocaleString()} - est. new in Trash {estimatedNewInTrash.toLocaleString()}
+            Processed {processedCount.toLocaleString()} messages - moved {movedCount.toLocaleString()} messages
+            {conversationCount > 0 ? ` - ${conversationCount.toLocaleString()} conversations in Gmail` : ''}
+          </p>
+        )}
+        {!isPending && conversationCount > 0 && movedCount > conversationCount && (
+          <p className="text-xs text-gray-400 mt-0.5">
+            Gmail search usually shows conversations, so its count can be lower than moved messages.
           </p>
         )}
         {isPending && (

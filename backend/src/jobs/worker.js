@@ -192,6 +192,7 @@ async function executeCleanupJob(job) {
         actionId: result.actionId,
         processedCount: effectiveIds.length,
         successCount: result.successCount,
+        conversationCount: result.conversationCount || 0,
         failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
         undoExpiresAt: result.undoExpiresAt,

@@ -31,7 +31,7 @@ export default function ConfirmModal({ isOpen, onConfirm, onCancel, pending, isE
         </h2>
 
         <p className="text-gray-500 text-center text-sm mb-6 leading-relaxed">
-          This will move <strong className="text-gray-900">{pending.messageCount?.toLocaleString()} emails</strong> from
+          This will move <strong className="text-gray-900">{pending.messageCount?.toLocaleString()} messages</strong> from
           <strong className="text-gray-900"> {pending.label}</strong> to your Trash,
           freeing up approximately <strong className="text-brand-600">{formatMB(pending.estimatedBytes)}</strong>.
         </p>

@@ -130,7 +130,7 @@ export default function CategoryCard({
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-2xl font-bold text-gray-900">{category.messageCount.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">emails</p>
+            <p className="text-xs text-gray-400">messages</p>
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold text-brand-600">{formatMB(category.totalBytes)}</p>

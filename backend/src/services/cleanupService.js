@@ -109,11 +109,20 @@ async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, to
 
   await snapshotOriginalLabels(actionId, metadata, result.success);
 
+  const successfulSet = new Set(result.success);
+  const conversationCount = new Set(
+    metadata
+      .filter((m) => successfulSet.has(m.id))
+      .map((m) => m.threadId)
+      .filter(Boolean)
+  ).size;
+
   const undoExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
   return {
     actionId,
     successCount: result.success.length,
+    conversationCount,
     failedCount: result.failed.length,
     failedIds: result.failed,
     bytesFreed: estimatedBytes,
@@ -214,6 +223,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
       jobMetaByAction.set(actionId, {
         processedCount: Number(result.processedCount || 0),
         movedCount: Number(result.successCount || 0),
+        conversationCount: Number(result.conversationCount || 0),
         failedCount: Number(result.failedCount || 0),
         trashBeforeEstimate: Number(result.trashBeforeEstimate || 0),
         trashAfterEstimate: Number(result.trashAfterEstimate || 0),

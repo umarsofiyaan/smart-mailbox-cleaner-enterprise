@@ -376,7 +376,7 @@ export default function Dashboard() {
         setUiNotice({
           type: 'info',
           message:
-            `Cleanup queued for ${queuedCount} emails. ` +
+            `Cleanup queued for ${queuedCount} messages. ` +
             `Estimated time ~${eta} minute${eta > 1 ? 's' : ''}. ` +
             `You can leave this page and check Cleanup History later.`,
         });
@@ -680,7 +680,7 @@ export default function Dashboard() {
                 <p className="text-brand-200 text-sm font-medium mb-1">Estimated space you can free</p>
                 <p className="text-4xl font-bold mb-4">{formatGB(scan.estimatedFreeableBytes)}</p>
                 <div className="flex items-center gap-4 text-sm text-brand-200 flex-wrap">
-                  <span>📧 {scan.progress?.messagesScanned?.toLocaleString()} emails scanned</span>
+                  <span>📧 {scan.progress?.messagesScanned?.toLocaleString()} messages scanned</span>
                   <span>📁 {categories.length} {categories.length === 1 ? 'category' : 'categories'} found</span>
                   {scan.scanDepth === 'custom' && (
                     <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -775,7 +775,7 @@ export default function Dashboard() {
                 {categories.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
                     <p className="text-3xl mb-3">✨</p>
-                    <p className="font-semibold text-gray-900">No emails match your filters</p>
+                    <p className="font-semibold text-gray-900">No messages match your filters</p>
                     <p className="text-gray-400 text-sm mt-1">Try adjusting the filters in a new custom scan.</p>
                     <button
                       onClick={() => setShowCustomScan(true)}
