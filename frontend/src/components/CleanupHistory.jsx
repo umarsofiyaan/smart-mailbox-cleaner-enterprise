@@ -57,6 +57,9 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const isUndone = action.status === 'undone';
   const isFailed = action.status === 'failed';
   const isPending = action.status === 'pending';
+  const processedCount = action.processedCount || 0;
+  const movedCount = action.movedCount || action.messageCount || 0;
+  const estimatedNewInTrash = action.estimatedNewInTrash || 0;
   const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
@@ -72,6 +75,11 @@ function HistoryRow({ action, onUndo, undoingId }) {
         <p className="text-xs text-gray-400 mt-0.5">
           {(action.messageCount || 0).toLocaleString()} emails - {formatMB(action.bytesFreed)} freed - {formatDate(action.executedAt)}
         </p>
+        {!isPending && processedCount > 0 && (
+          <p className="text-xs text-gray-500 mt-0.5">
+            Processed {processedCount.toLocaleString()} - moved {movedCount.toLocaleString()} - est. new in Trash {estimatedNewInTrash.toLocaleString()}
+          </p>
+        )}
         {isPending && (
           <p className="text-xs text-indigo-600 mt-0.5 font-medium">
             {`${(action.messageCount || 0).toLocaleString()} moved so far. Processing in background...`}

@@ -192,9 +192,39 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
   ]);
 
   const total = parseInt(count.rows[0].count, 10);
+  const actionIds = data.rows.map(r => r.id);
+
+  const jobMetaByAction = new Map();
+  if (actionIds.length > 0) {
+    const jobs = await query(
+      `SELECT payload
+       FROM jobs
+       WHERE user_id = $1
+         AND job_type = 'CLEANUP'
+         AND (payload->>'actionId') = ANY($2::text[])
+       ORDER BY created_at DESC`,
+      [userId, actionIds]
+    );
+
+    for (const row of jobs.rows) {
+      const payload = row.payload || {};
+      const actionId = payload.actionId;
+      if (!actionId || jobMetaByAction.has(actionId)) continue;
+      const result = payload.result || {};
+      jobMetaByAction.set(actionId, {
+        processedCount: Number(result.processedCount || 0),
+        movedCount: Number(result.successCount || 0),
+        failedCount: Number(result.failedCount || 0),
+        trashBeforeEstimate: Number(result.trashBeforeEstimate || 0),
+        trashAfterEstimate: Number(result.trashAfterEstimate || 0),
+        estimatedNewInTrash: Number(result.estimatedNewInTrash || 0),
+      });
+    }
+  }
 
   return {
     items: data.rows.map(row => ({
+      ...(jobMetaByAction.get(row.id) || {}),
       id: row.id,
       category: row.category,
       status: row.status,

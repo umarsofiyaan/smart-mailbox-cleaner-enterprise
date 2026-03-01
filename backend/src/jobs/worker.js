@@ -11,7 +11,7 @@ const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
 const { executePlaybookRun, enqueuePlaybookRun } = require('../services/playbookService');
 const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
-const { getGmailClient, collectMessageIdsByQuery } = require('../services/gmailService');
+const { getGmailClient, collectMessageIdsByQuery, getTrashEstimate } = require('../services/gmailService');
 const { runCleanupAction } = require('../services/cleanupService');
 const {
   sendCleanupReceipt,
@@ -133,11 +133,12 @@ async function executeCleanupJob(job) {
     }
 
     const tokens = await getOAuthTokens(job.user_id);
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+    const trashBeforeEstimate = await getTrashEstimate(gmail);
     let effectiveIds = [];
 
     if (cleanupMode === 'query') {
       await patchJobPayload(job.id, { progress: { stage: 'resolving_ids' } });
-      const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
       effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
         maxMessages: quotaCheck.remaining,
       });
@@ -180,16 +181,23 @@ async function executeCleanupJob(job) {
         });
       }
     );
+    const trashAfterEstimate = await getTrashEstimate(gmail);
+    const estimatedNewInTrash = Math.max(0, trashAfterEstimate - trashBeforeEstimate);
+
     await consumeQuota(job.user_id, result.successCount);
 
     await patchJobPayload(job.id, {
       progress: { stage: 'done', matchedCount: effectiveIds.length },
       result: {
         actionId: result.actionId,
+        processedCount: effectiveIds.length,
         successCount: result.successCount,
         failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
         undoExpiresAt: result.undoExpiresAt,
+        trashBeforeEstimate,
+        trashAfterEstimate,
+        estimatedNewInTrash,
       },
     });
 
