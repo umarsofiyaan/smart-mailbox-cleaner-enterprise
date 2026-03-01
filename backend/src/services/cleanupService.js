@@ -177,10 +177,34 @@ async function undoCleanup(actionId, userId, tokens) {
     ? await batchRestoreMessagesWithLabels(gmail, action.message_ids, labelsByMessageId)
     : await batchRestoreMessages(gmail, action.message_ids);
 
-  await query("UPDATE cleanup_actions SET status = 'undone', undone_at = NOW() WHERE id = $1", [actionId]);
+  if (result.failed.length === 0) {
+    await query(
+      "UPDATE cleanup_actions SET status = 'undone', undone_at = NOW(), error_message = NULL WHERE id = $1",
+      [actionId]
+    );
+  } else {
+    // Keep action in complete state so user can retry Undo for remaining IDs.
+    await query(
+      `UPDATE cleanup_actions
+       SET status = 'complete',
+           undone_at = NULL,
+           error_message = $2
+       WHERE id = $1`,
+      [actionId, `Undo partially completed. Restored ${result.success.length}, failed ${result.failed.length}.`]
+    );
+  }
 
-  logger.info('Undo complete', { actionId, successCount: result.success.length });
-  return { actionId, successCount: result.success.length, failedCount: result.failed.length };
+  logger.info('Undo complete', {
+    actionId,
+    successCount: result.success.length,
+    failedCount: result.failed.length,
+  });
+  return {
+    actionId,
+    successCount: result.success.length,
+    failedCount: result.failed.length,
+    isPartial: result.failed.length > 0,
+  };
 }
 
 async function getCleanupHistory(userId, limit = 10, offset = 0) {

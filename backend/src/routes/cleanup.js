@@ -206,10 +206,14 @@ router.post(
       const tokens = await getOAuthTokens(req.user.id);
       const result = await undoCleanup(req.params.actionId, req.user.id, tokens);
       return res.json({
-        success: true,
+        success: !result.isPartial,
+        partial: !!result.isPartial,
         actionId: req.params.actionId,
         restoredCount: result.successCount,
         failedCount: result.failedCount,
+        message: result.isPartial
+          ? 'Undo partially completed. Some messages are still in Trash. Retry Undo.'
+          : 'Undo completed successfully.',
       });
     } catch (err) {
       return res.status(400).json({ error: err.message });
