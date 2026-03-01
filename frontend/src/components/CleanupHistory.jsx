@@ -60,6 +60,8 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const processedCount = action.processedCount || 0;
   const movedCount = action.movedCount || action.messageCount || 0;
   const conversationCount = action.conversationCount || 0;
+  const trashConversationsBefore = action.trashConversationsBefore || 0;
+  const estimatedNewConversationsInTrash = action.estimatedNewConversationsInTrash || 0;
   const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
@@ -81,9 +83,17 @@ function HistoryRow({ action, onUndo, undoingId }) {
             {conversationCount > 0 ? ` - ${conversationCount.toLocaleString()} conversations in Gmail` : ''}
           </p>
         )}
+        {!isPending && trashConversationsBefore > 0 && (
+          <p className="text-xs text-gray-400 mt-0.5">
+            Trash already had {trashConversationsBefore.toLocaleString()} conversations before this run
+            {estimatedNewConversationsInTrash > 0
+              ? ` (about ${estimatedNewConversationsInTrash.toLocaleString()} added by this run).`
+              : '.'}
+          </p>
+        )}
         {!isPending && conversationCount > 0 && movedCount > conversationCount && (
           <p className="text-xs text-gray-400 mt-0.5">
-            Gmail search usually shows conversations, so its count can be lower than moved messages.
+            Gmail search shows total Trash conversations, not only this cleanup action.
           </p>
         )}
         {isPending && (

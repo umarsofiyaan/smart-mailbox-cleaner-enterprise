@@ -291,6 +291,21 @@ async function getTrashEstimate(gmail) {
 }
 
 /**
+ * Get an approximate total count of conversations currently in Trash.
+ */
+async function getTrashConversationEstimate(gmail) {
+  const res = await withBackoff(() =>
+    gmail.users.threads.list({
+      userId: 'me',
+      q: 'in:trash',
+      maxResults: 1,
+      fields: 'resultSizeEstimate',
+    })
+  );
+  return Number(res.data?.resultSizeEstimate || 0);
+}
+
+/**
  * Restore messages from Trash (undo cleanup).
  * Removes TRASH label.
  */
@@ -424,6 +439,7 @@ module.exports = {
   listMessages,
   collectMessageIdsByQuery,
   getTrashEstimate,
+  getTrashConversationEstimate,
   getMessageMetadata,
   batchGetMessageMetadata,
   batchTrashMessages,

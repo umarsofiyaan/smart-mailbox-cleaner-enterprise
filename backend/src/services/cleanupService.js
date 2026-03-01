@@ -228,6 +228,9 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
         trashBeforeEstimate: Number(result.trashBeforeEstimate || 0),
         trashAfterEstimate: Number(result.trashAfterEstimate || 0),
         estimatedNewInTrash: Number(result.estimatedNewInTrash || 0),
+        trashConversationsBefore: Number(result.trashConversationsBefore || 0),
+        trashConversationsAfter: Number(result.trashConversationsAfter || 0),
+        estimatedNewConversationsInTrash: Number(result.estimatedNewConversationsInTrash || 0),
       });
     }
   }

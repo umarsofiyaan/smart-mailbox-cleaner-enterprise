@@ -11,7 +11,12 @@ const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
 const { executePlaybookRun, enqueuePlaybookRun } = require('../services/playbookService');
 const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
-const { getGmailClient, collectMessageIdsByQuery, getTrashEstimate } = require('../services/gmailService');
+const {
+  getGmailClient,
+  collectMessageIdsByQuery,
+  getTrashEstimate,
+  getTrashConversationEstimate,
+} = require('../services/gmailService');
 const { runCleanupAction } = require('../services/cleanupService');
 const {
   sendCleanupReceipt,
@@ -135,6 +140,7 @@ async function executeCleanupJob(job) {
     const tokens = await getOAuthTokens(job.user_id);
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
     const trashBeforeEstimate = await getTrashEstimate(gmail);
+    const trashConversationsBefore = await getTrashConversationEstimate(gmail);
     let effectiveIds = [];
 
     if (cleanupMode === 'query') {
@@ -182,7 +188,12 @@ async function executeCleanupJob(job) {
       }
     );
     const trashAfterEstimate = await getTrashEstimate(gmail);
+    const trashConversationsAfter = await getTrashConversationEstimate(gmail);
     const estimatedNewInTrash = Math.max(0, trashAfterEstimate - trashBeforeEstimate);
+    const estimatedNewConversationsInTrash = Math.max(
+      0,
+      trashConversationsAfter - trashConversationsBefore
+    );
 
     await consumeQuota(job.user_id, result.successCount);
 
@@ -199,6 +210,9 @@ async function executeCleanupJob(job) {
         trashBeforeEstimate,
         trashAfterEstimate,
         estimatedNewInTrash,
+        trashConversationsBefore,
+        trashConversationsAfter,
+        estimatedNewConversationsInTrash,
       },
     });
 
