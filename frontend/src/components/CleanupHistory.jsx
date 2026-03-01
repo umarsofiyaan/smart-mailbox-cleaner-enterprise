@@ -137,11 +137,13 @@ export default function CleanupHistory({ onUndoSuccess }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [undoingId, setUndoingId] = useState(null);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
+      setInfo('');
       const res = await cleanupApi.getHistory({ limit: PAGE_SIZE, offset: 0 });
       const data = res.data;
       setHistory(data.items || []);
@@ -184,12 +186,19 @@ export default function CleanupHistory({ onUndoSuccess }) {
   async function handleUndo(actionId) {
     setUndoingId(actionId);
     setError('');
+    setInfo('');
     try {
       await cleanupApi.undo(actionId);
       await load();
       onUndoSuccess?.();
     } catch (err) {
+      const statusCode = err?.response?.status;
       const msg = err?.response?.data?.error || err?.message || 'Undo failed.';
+      if (statusCode === 409 || /already in progress/i.test(msg)) {
+        setInfo('An undo is already in progress. Please wait and refresh Cleanup History.');
+        setTimeout(() => { load(); }, 5000);
+        return;
+      }
       if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
         // Backend may still be restoring large batches. Refresh silently.
         setTimeout(() => { load(); }, 3000);
@@ -236,6 +245,11 @@ export default function CleanupHistory({ onUndoSuccess }) {
       {error && (
         <div className="mx-5 mt-4 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
+      {info && (
+        <div className="mx-5 mt-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+          <p className="text-sm text-blue-700">{info}</p>
         </div>
       )}
 

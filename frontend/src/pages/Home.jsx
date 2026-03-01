@@ -14,6 +14,7 @@ export default function Home() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState('');
 
   // If already logged in, go straight to dashboard
   useEffect(() => {
@@ -22,10 +23,12 @@ export default function Home() {
 
   async function handleGetStarted() {
     setIsConnecting(true);
+    setConnectError('');
     try {
       const res = await authApi.getGoogleAuthUrl();
       window.location.href = res.data.url;
     } catch {
+      setConnectError('Could not reach the server. If this is your first visit, wait up to 60 seconds and try again.');
       setIsConnecting(false);
     }
   }
@@ -101,6 +104,14 @@ export default function Home() {
         <p className="text-sm text-gray-400 mt-4">
           5,000 free cleanup credits included · Undo any action within 30 days
         </p>
+        {isConnecting && (
+          <p className="text-sm text-blue-600 mt-3">
+            Waking up server... first visit can take up to 60 seconds.
+          </p>
+        )}
+        {connectError && (
+          <p className="text-sm text-red-600 mt-3">{connectError}</p>
+        )}
       </section>
 
       {/* ── Trust bar ───────────────────────────────────────────────────── */}

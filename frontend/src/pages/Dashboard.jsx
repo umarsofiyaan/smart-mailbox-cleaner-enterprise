@@ -159,6 +159,7 @@ export default function Dashboard() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showCustomScan,        setShowCustomScan]        = useState(false);
   const [customScanError,       setCustomScanError]       = useState(''); // separate error for custom scan init failures
+  const [taskNotice,            setTaskNotice]            = useState(null);
   const profileMenuRef = useRef(null);
 
   const isPro       = user?.subscription?.isPro;
@@ -167,6 +168,13 @@ export default function Dashboard() {
     const n = Number(count) || 0;
     if (n <= 0) return 1;
     return Math.max(1, Math.ceil(n / 1500));
+  };
+
+  const isConflictMessage = (msg = '') =>
+    typeof msg === 'string' && msg.toLowerCase().includes('already in progress');
+
+  const scrollToSection = (id) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   // Close profile menu on outside click
@@ -207,6 +215,7 @@ export default function Dashboard() {
   // ── Quick scan ──────────────────────────────────────────────────────────────
 
   function handleQuickScan() {
+    setTaskNotice(null);
     setCustomScanError('');
     startScan(isPro ? 'all' : '12months');
   }
@@ -218,6 +227,7 @@ export default function Dashboard() {
   //   Layer 3: fall back to raw axios api instance → works with ANY client.js version
 
   async function handleCustomScanStart(params) {
+    setTaskNotice(null);
     setShowCustomScan(false);
     setCustomScanError('');
 
@@ -319,6 +329,7 @@ export default function Dashboard() {
   // ── Cleanup ─────────────────────────────────────────────────────────────────
 
   function handleCleanupRequest(categoryData) {
+    setTaskNotice(null);
     if (!isPro && quotaRemaining <= 0) {
       document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
       return;
@@ -359,6 +370,15 @@ export default function Dashboard() {
       if (!isPro) { loadQuota(); setQuotaRefreshKey(k => k + 1); }
     } catch (err) {
       const msg = err?.message || 'Cleanup failed.';
+      if (isConflictMessage(msg)) {
+        setTaskNotice({
+          type: 'cleanup',
+          message: msg,
+        });
+        setPendingCleanup(null);
+        setHistoryKey(k => k + 1);
+        return;
+      }
       // If the client timed out, backend may still complete cleanup.
       if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
         setTimeout(async () => {
@@ -372,6 +392,7 @@ export default function Dashboard() {
   }
 
   async function handleUndo(actionId) {
+    setTaskNotice(null);
     try {
       await undoCleanup(actionId);
       setUndoAction(null);
@@ -379,6 +400,14 @@ export default function Dashboard() {
       await loadLatestScan();
     } catch (err) {
       const msg = err?.message || 'Undo failed.';
+      if (isConflictMessage(msg)) {
+        setTaskNotice({
+          type: 'undo',
+          message: msg,
+        });
+        setHistoryKey(k => k + 1);
+        return;
+      }
       if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
         setTimeout(async () => {
           setHistoryKey(k => k + 1);
@@ -396,7 +425,7 @@ export default function Dashboard() {
   // Combined error: hook error OR local custom scan error
   const displayError = error || (customScanError && !customScanError.startsWith('⏳') && !customScanError.startsWith('🔍') ? customScanError : '');
   const infoMessage  = customScanError && (customScanError.startsWith('⏳') || customScanError.startsWith('🔍')) ? customScanError : '';
-  const isConflictInfo = typeof displayError === 'string' && displayError.toLowerCase().includes('already in progress');
+  const isScanConflictInfo = isConflictMessage(displayError);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -510,13 +539,21 @@ export default function Dashboard() {
 
         {/* Error (scan failed or custom scan init failed) */}
         {displayError && (
-          <div className={`${isConflictInfo ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100'} border rounded-xl px-5 py-4 mb-6`}>
-            <p className={`${isConflictInfo ? 'text-blue-700' : 'text-red-700'} font-medium`}>
-              {isConflictInfo
+          <div className={`${isScanConflictInfo ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100'} border rounded-xl px-5 py-4 mb-6`}>
+            <p className={`${isScanConflictInfo ? 'text-blue-700' : 'text-red-700'} font-medium`}>
+              {isScanConflictInfo
                 ? displayError
                 : (displayError.startsWith('❌') ? displayError : `Scan failed: ${displayError}`)}
             </p>
-            {!isConflictInfo && (displayError.toLowerCase().includes('api') || displayError.toLowerCase().includes('disabled')) && (
+            {isScanConflictInfo && (
+              <button
+                onClick={() => scrollToSection('scan-progress')}
+                className="text-blue-700 text-sm underline mt-2 block"
+              >
+                Go to active scan
+              </button>
+            )}
+            {!isScanConflictInfo && (displayError.toLowerCase().includes('api') || displayError.toLowerCase().includes('disabled')) && (
               <p className="text-red-600 text-sm mt-2">
                 💡 Gmail API may not be enabled.{' '}
                 <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
@@ -525,7 +562,7 @@ export default function Dashboard() {
                 </a>
               </p>
             )}
-            {!isConflictInfo && (
+            {!isScanConflictInfo && (
               <button onClick={handleQuickScan} className="text-red-600 text-sm underline mt-2 block">
                 Try quick scan instead
               </button>
@@ -533,8 +570,20 @@ export default function Dashboard() {
           </div>
         )}
 
+        {taskNotice && (
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-5 py-4 mb-6">
+            <p className="text-blue-700 font-medium">{taskNotice.message}</p>
+            <button
+              onClick={() => scrollToSection(taskNotice.type === 'scan' ? 'scan-progress' : 'cleanup-history')}
+              className="text-blue-700 text-sm underline mt-2 block"
+            >
+              {taskNotice.type === 'scan' ? 'Go to active scan' : 'Go to active cleanup/undo'}
+            </button>
+          </div>
+        )}
+
         {/* Scanning progress bar */}
-        <div className="mb-6">
+        <div className="mb-6" id="scan-progress">
           <ProgressBar status={status} messagesScanned={scan?.progress?.messagesScanned} scanType={scan?.scanType} />
         </div>
 
@@ -707,7 +756,7 @@ export default function Dashboard() {
         )}
 
         {/* Cleanup History */}
-        <div className="mt-8">
+        <div className="mt-8" id="cleanup-history">
           <CleanupHistory
             key={historyKey}
             onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(); }}

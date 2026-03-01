@@ -73,12 +73,13 @@ export const authApi = {
     if (state)      params.set('state', state);
     if (forceFlag)  params.set('force', 'true');
     const qs = params.toString();
-    return api.get(`/auth/google${qs ? `?${qs}` : ''}`);
+    // Render free tier can cold-start slowly; allow longer timeout for OAuth URL.
+    return api.get(`/auth/google${qs ? `?${qs}` : ''}`, { timeout: 120000 });
   },
-  getMe:         () => api.get('/auth/me'),
+  getMe:         () => api.get('/auth/me', { timeout: 120000 }),
   logout:        () => api.post('/auth/logout'),
   deleteAccount: () => api.delete('/auth/account'),
-  refresh:       (rt) => api.post('/auth/refresh', { refresh_token: rt }),
+  refresh:       (rt) => api.post('/auth/refresh', { refresh_token: rt }, { timeout: 120000 }),
 };
 
 export const scanApi = {

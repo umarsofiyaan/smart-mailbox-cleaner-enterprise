@@ -32,7 +32,7 @@ export default function Login() {
       const response = await authApi.getGoogleAuthUrl(forceConsent);
       window.location.href = response.data.url;
     } catch {
-      setErrorMessage('Failed to connect to Google. Please try again.');
+      setErrorMessage('Failed to connect to Google. If this is your first visit, wait up to 60 seconds and try again.');
       setIsConnecting(false);
     }
   }
@@ -121,6 +121,11 @@ export default function Login() {
             )}
             {isConnecting ? 'Connecting to Google…' : 'Continue with Google'}
           </button>
+          {isConnecting && (
+            <p className="text-xs text-blue-600 mt-3 text-center">
+              Waking up server... first visit can take up to 60 seconds.
+            </p>
+          )}
 
           {/* Features */}
           <div className="mt-8 space-y-3">
