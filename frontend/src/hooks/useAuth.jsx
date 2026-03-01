@@ -66,14 +66,14 @@ export function AuthProvider({ children }) {
       const errorCode = err?.response?.data?.code;
 
       // ── Account deleted / deactivated ─────────────────────────────────
-      // Don't attempt refresh — the account is gone. Clear and redirect.
+      // Don't attempt refresh - the account is gone. Clear and redirect.
       if (errorCode === 'ACCOUNT_DELETED') {
         clearTokens();
         setLoading(false);
         return;
       }
 
-      // ── Token expired — try refresh ────────────────────────────────────
+      // ── Token expired - try refresh ────────────────────────────────────
       try {
         const storedRefresh = localStorage.getItem('refresh_token');
         if (storedRefresh) {
@@ -92,13 +92,13 @@ export function AuthProvider({ children }) {
       } catch (refreshErr) {
         const refreshCode = refreshErr?.response?.data?.code;
 
-        // Account deleted at refresh stage too — clear immediately
+        // Account deleted at refresh stage too - clear immediately
         if (refreshCode === 'ACCOUNT_DELETED') {
           clearTokens();
           setLoading(false);
           return;
         }
-        // Other refresh failure — fall through to clearTokens below
+        // Other refresh failure - fall through to clearTokens below
       }
 
       clearTokens();

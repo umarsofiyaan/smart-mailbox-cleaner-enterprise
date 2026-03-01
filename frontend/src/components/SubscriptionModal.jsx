@@ -46,7 +46,7 @@ export default function SubscriptionModal({ user, onClose }) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-2xl font-light"
           >
-            ×
+            x
           </button>
         </div>
 
@@ -80,19 +80,19 @@ export default function SubscriptionModal({ user, onClose }) {
             <p className="text-sm font-semibold text-gray-900 mb-3">What's included:</p>
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2">
-                <span className="text-green-600 text-lg">✓</span>
+                <span className="text-green-600 text-lg">OK</span>
                 Unlimited cleanups
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-600 text-lg">✓</span>
+                <span className="text-green-600 text-lg">OK</span>
                 Undo for 30 days
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-600 text-lg">✓</span>
+                <span className="text-green-600 text-lg">OK</span>
                 Priority support
               </li>
               <li className="flex items-center gap-2">
-                <span className="text-green-600 text-lg">✓</span>
+                <span className="text-green-600 text-lg">OK</span>
                 Full mailbox analysis
               </li>
             </ul>

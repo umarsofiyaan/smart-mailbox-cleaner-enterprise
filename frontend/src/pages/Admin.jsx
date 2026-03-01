@@ -13,7 +13,7 @@ function formatBytes(bytes) {
 }
 
 function formatDate(d) {
-  if (!d) return '—';
+  if (!d) return '-';
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
@@ -46,7 +46,7 @@ function UserRow({ u, currentUserId, onRefresh }) {
   const lifetimeRemaining = isPro ? null : Math.max(0, lifetimeAllowance - lifetimeUsed);
   const cleanupCount      = parseInt(u.cleanup_count) || 0;
   const scanCount         = parseInt(u.scan_count)    || 0;
-  const displayName       = u.display_name || u.email?.split('@')[0] || '—';
+  const displayName       = u.display_name || u.email?.split('@')[0] || '-';
 
   async function togglePro() {
     if (!confirm(`${isPro ? 'Remove Pro from' : 'Grant Pro to'} ${u.email}?`)) return;
@@ -153,7 +153,7 @@ function UserRow({ u, currentUserId, onRefresh }) {
 
       {/* Last Action */}
       <td className="px-3 py-3 text-xs">
-        <span className="text-gray-300">—</span>
+        <span className="text-gray-300">-</span>
       </td>
 
       {/* Manage */}
@@ -346,7 +346,7 @@ export default function Admin() {
             {[
               { label: 'Total Users',     value: stats.totalUsers,                   color: 'bg-blue-50   text-blue-700',   icon: '👥' },
               { label: 'Pro Subscribers', value: stats.proUsers,                     color: 'bg-indigo-50 text-indigo-700', icon: '⭐' },
-              { label: 'New This Week',   value: stats.newUsersThisWeek ?? '—',      color: 'bg-teal-50   text-teal-700',   icon: '🆕' },
+              { label: 'New This Week',   value: stats.newUsersThisWeek ?? '-',      color: 'bg-teal-50   text-teal-700',   icon: '🆕' },
               { label: 'Scans Done',      value: stats.totalScans,                   color: 'bg-purple-50 text-purple-700', icon: '🔍' },
               { label: 'Space Freed',     value: formatBytes(stats.totalBytesFreed), color: 'bg-green-50  text-green-700',  icon: '🗑️' },
             ].map(s => (
@@ -398,7 +398,7 @@ export default function Admin() {
                     <span className="text-base">🗑️</span>
                     <h3 className="font-bold text-gray-800 text-sm">Deleted Users</h3>
                     <span className="bg-red-100 text-red-500 text-xs font-medium px-2 py-0.5 rounded-full">{deletedUsers.length}</span>
-                    <span className="text-xs text-gray-400 ml-1">— sessions revoked, read-only view</span>
+                    <span className="text-xs text-gray-400 ml-1">- sessions revoked, read-only view</span>
                   </div>
                   <span className="text-gray-400 text-xs">{showDeleted ? '▲' : '▼'}</span>
                 </button>
@@ -421,7 +421,7 @@ export default function Admin() {
                               </div>
                             </td>
                             <td className="px-3 py-3">
-                              <p className="text-xs text-gray-600 line-through">{u.display_name || '—'}</p>
+                              <p className="text-xs text-gray-600 line-through">{u.display_name || '-'}</p>
                               <p className="text-xs text-gray-400">{u.email}</p>
                             </td>
                             <td className="px-3 py-3 text-xs text-gray-400">{formatDate(u.created_at)}</td>
@@ -467,7 +467,7 @@ export default function Admin() {
                         {auditLog.map(entry => (
                           <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50/40">
                             <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{formatDate(entry.created_at)}</td>
-                            <td className="px-3 py-2.5 text-xs text-gray-600">{entry.admin_email || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600">{entry.admin_email || '-'}</td>
                             <td className="px-3 py-2.5">
                               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                                 entry.action === 'delete_user'       ? 'bg-red-50 text-red-600'     :
@@ -479,9 +479,9 @@ export default function Admin() {
                                 {entry.action.replace(/_/g, ' ')}
                               </span>
                             </td>
-                            <td className="px-3 py-2.5 text-xs text-gray-500">{entry.target_email || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-500">{entry.target_email || '-'}</td>
                             <td className="px-3 py-2.5 text-xs text-gray-400 font-mono">
-                              {entry.detail ? JSON.stringify(entry.detail).replace(/[{}"]/g, '').slice(0, 60) : '—'}
+                              {entry.detail ? JSON.stringify(entry.detail).replace(/[{}"]/g, '').slice(0, 60) : '-'}
                             </td>
                           </tr>
                         ))}

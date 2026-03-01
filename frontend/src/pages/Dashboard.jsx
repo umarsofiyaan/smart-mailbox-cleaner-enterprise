@@ -55,7 +55,7 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
 
   return (
     <div className="relative" ref={ref}>
-      {/* Button pair — overflow-hidden only here for rounded corners on the joined buttons */}
+      {/* Button pair - overflow-hidden only here for rounded corners on the joined buttons */}
       <div className="flex items-stretch rounded-xl overflow-hidden shadow-sm">
 
         {/* Primary action */}
@@ -68,14 +68,14 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
           {isRunning ? (
             <>
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Scanning…
+              Scanning...
             </>
           ) : (
             <>🔍 {status === 'complete' ? 'Re-scan' : 'Scan Mailbox'}</>
           )}
         </button>
 
-        {/* Chevron — same height, same visual weight */}
+        {/* Chevron - same height, same visual weight */}
         <button
           onClick={() => setDropOpen(v => !v)}
           disabled={isRunning}
@@ -104,7 +104,7 @@ function ScanButton({ status, onQuickScan, onCustomScan }) {
             <div>
               <p className="text-sm font-semibold text-gray-900">Quick Scan</p>
               <p className="text-xs text-gray-400 mt-0.5 leading-snug">
-                Auto-scan 7 categories — large files, promotions, social, and more
+                Auto-scan 7 categories - large files, promotions, social, and more
               </p>
             </div>
           </button>
@@ -224,9 +224,9 @@ export default function Dashboard() {
 
   // ── Custom scan ─────────────────────────────────────────────────────────────
   // Three-layer defence so this works regardless of which files are deployed:
-  //   Layer 1: useScan hook has startCustomScan  → use it (best, full progress bar)
-  //   Layer 2: client.js has scanApi.startCustomScan → call it directly
-  //   Layer 3: fall back to raw axios api instance → works with ANY client.js version
+  //   Layer 1: useScan hook has startCustomScan  -> use it (best, full progress bar)
+  //   Layer 2: client.js has scanApi.startCustomScan -> call it directly
+  //   Layer 3: fall back to raw axios api instance -> works with ANY client.js version
 
   async function handleCustomScanStart(params) {
     setTaskNotice(null);
@@ -243,11 +243,11 @@ export default function Dashboard() {
     // ── Layer 2 & 3: self-contained fallback (no hook needed) ─────────────────
     const POLL_MS = 3000;
     let pollTimer = null;
-    setCustomScanError('⏳ Custom scan starting…');
+    setCustomScanError('⏳ Custom scan starting...');
 
     try {
       // Use scanApi.startCustomScan if it exists, otherwise hit the endpoint directly
-      // via the raw `api` axios instance — works even with the old client.js
+      // via the raw `api` axios instance - works even with the old client.js
       let scanId;
       try {
         const res = typeof scanApi?.startCustomScan === 'function'
@@ -259,16 +259,16 @@ export default function Dashboard() {
         const msg = initErr?.response?.data?.error || initErr?.message || 'Custom scan failed to start.';
         const status = initErr?.response?.status;
         const hint = status === 404
-          ? ' — Backend route /scan/custom not found. Deploy backend/src/routes/scan.js to Render.'
+          ? ' - Backend route /scan/custom not found. Deploy backend/src/routes/scan.js to Render.'
           : status === 409
-          ? ' — A scan is already running. Wait for it to finish.'
+          ? ' - A scan is already running. Wait for it to finish.'
           : status === 400
-          ? ' — Please set at least one filter before scanning.'
+          ? ' - Please set at least one filter before scanning.'
           : '';
         throw new Error(`${msg}${hint}`);
       }
 
-      setCustomScanError('🔍 Custom scan running — results will appear shortly…');
+      setCustomScanError('🔍 Custom scan running - results will appear shortly...');
 
       // Poll until complete or failed
       await new Promise((resolve, reject) => {
@@ -292,7 +292,7 @@ export default function Dashboard() {
         }, POLL_MS);
       });
 
-      // Done — reload latest scan so UI reflects results
+      // Done - reload latest scan so UI reflects results
       setCustomScanError('');
       await loadLatestScan();
 
@@ -568,7 +568,7 @@ export default function Dashboard() {
                 💡 Gmail API may not be enabled.{' '}
                 <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
                   target="_blank" rel="noopener noreferrer" className="underline font-semibold">
-                  Enable it here →
+                  Enable it here -&gt;
                 </a>
               </p>
             )}
@@ -613,7 +613,7 @@ export default function Dashboard() {
                 className="text-gray-400 hover:text-gray-600 text-sm"
                 aria-label="Dismiss notice"
               >
-                ×
+                x
               </button>
             </div>
           </div>
@@ -656,7 +656,7 @@ export default function Dashboard() {
                     onClick={() => navigate('/pricing')}
                     className="mt-4 bg-white text-brand-700 font-bold px-5 py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-sm"
                   >
-                    Upgrade to Pro for unlimited →
+                    Upgrade to Pro for unlimited -&gt;
                   </button>
                 )}
               </div>
@@ -725,7 +725,7 @@ export default function Dashboard() {
                   )}
                   {!isPro && quotaRemaining === 0 && quota && (
                     <span className="text-sm text-amber-500 font-normal ml-2">
-                      (free quota used — upgrade for more)
+                      (free quota used - upgrade for more)
                     </span>
                   )}
                 </h2>
@@ -739,7 +739,7 @@ export default function Dashboard() {
                       onClick={() => setShowCustomScan(true)}
                       className="mt-4 text-sm text-indigo-600 hover:text-indigo-700 font-semibold underline"
                     >
-                      Adjust filters →
+                      Adjust filters -&gt;
                     </button>
                   </div>
                 ) : (

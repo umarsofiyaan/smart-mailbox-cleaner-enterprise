@@ -1,5 +1,5 @@
 // src/pages/Terms.jsx
-// Terms of Service — required for Google OAuth verification.
+// Terms of Service - required for Google OAuth verification.
 
 export default function Terms() {
   const lastUpdated = 'February 22, 2026';
@@ -51,7 +51,7 @@ export default function Terms() {
             <P>
               The Service <strong>never reads, stores, or processes the body or content of your emails</strong>.
               All email access is limited to metadata (size, labels, dates). Gmail itself handles all
-              email data — we only instruct Gmail to move emails to Trash using the Gmail API.
+              email data - we only instruct Gmail to move emails to Trash using the Gmail API.
             </P>
           </Section>
 
@@ -83,7 +83,7 @@ export default function Terms() {
 
           <Section title="5. Cleanup Actions and Undo">
             <P>
-              When you initiate a cleanup action, emails are moved to Gmail's Trash folder — they
+              When you initiate a cleanup action, emails are moved to Gmail's Trash folder - they
               are <strong>not permanently deleted</strong> by the Service. You have <strong>30 days</strong> from
               the date of a cleanup action to restore ("undo") that action via the dashboard.
             </P>
@@ -233,7 +233,7 @@ export default function Terms() {
       </main>
 
       <footer className="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-gray-400">
-        <span>© 2026 {appName}</span>
+        <span>(c) 2026 {appName}</span>
         <div className="flex gap-4">
           <a href="/privacy" className="hover:text-gray-600">Privacy Policy</a>
           <a href="/terms" className="hover:text-gray-600">Terms of Service</a>

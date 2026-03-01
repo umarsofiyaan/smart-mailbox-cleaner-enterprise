@@ -70,7 +70,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
           {CATEGORY_LABELS[action.category] || action.category}
         </p>
         <p className="text-xs text-gray-400 mt-0.5">
-          {(action.messageCount || 0).toLocaleString()} emails · {formatMB(action.bytesFreed)} freed · {formatDate(action.executedAt)}
+          {(action.messageCount || 0).toLocaleString()} emails - {formatMB(action.bytesFreed)} freed - {formatDate(action.executedAt)}
         </p>
         {isPending && (
           <p className="text-xs text-indigo-600 mt-0.5 font-medium">Processing in background...</p>

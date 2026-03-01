@@ -1,6 +1,6 @@
 // src/components/QuotaBanner.jsx
 // Free-tier quota display for non-Pro users.
-// Round 3: 80% warning state — shows upgrade nudge before hitting the wall.
+// Round 3: 80% warning state - shows upgrade nudge before hitting the wall.
 // `refreshKey` prop incremented by Dashboard after each cleanup to force re-fetch.
 
 import { useEffect, useState } from 'react';
@@ -35,7 +35,7 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
   const lifetimePct       = Math.min(100, (lifetimeUsed / lifetimeAllowance) * 100);
 
   const isExhausted = lifetimeRemaining === 0;
-  const isWarning   = !isExhausted && lifetimePct >= 80;   // 80–99%
+  const isWarning   = !isExhausted && lifetimePct >= 80;   // 80-99%
 
   const theme = isExhausted
     ? { bg: 'bg-red-50',    border: 'border-red-200',    title: 'text-red-900',    sub: 'text-red-700',    bar: 'bg-red-400',    btnBg: 'bg-red-600 hover:bg-red-700',       badge: 'bg-red-100 text-red-700' }
@@ -78,7 +78,7 @@ export default function QuotaBanner({ isPro, refreshKey = 0 }) {
                 onClick={() => navigate('/pricing')}
                 className="underline font-semibold hover:opacity-80"
               >
-                upgrade to Pro for unlimited →
+                upgrade to Pro for unlimited -&gt;
               </button>
             </p>
           )}

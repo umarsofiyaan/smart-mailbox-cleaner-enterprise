@@ -10,7 +10,7 @@ export default function ProgressBar({ status, messagesScanned }) {
         </div>
         <div className="flex-1">
           <p className="font-semibold text-gray-900">
-            {status === 'starting' ? 'Connecting to Gmail…' : 'Scanning your mailbox…'}
+            {status === 'starting' ? 'Connecting to Gmail...' : 'Scanning your mailbox...'}
           </p>
           <p className="text-sm text-gray-500 mt-0.5">
             {messagesScanned > 0
@@ -26,7 +26,7 @@ export default function ProgressBar({ status, messagesScanned }) {
       </div>
 
       <p className="text-xs text-gray-400 mt-3 text-center">
-        We only look at email metadata — never your message content
+        We only look at email metadata - never your message content
       </p>
     </div>
   );

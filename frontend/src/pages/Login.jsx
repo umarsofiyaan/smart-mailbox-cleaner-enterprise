@@ -60,7 +60,7 @@ export default function Login() {
             className="w-20 h-20 mx-auto mb-4 rounded-2xl shadow-lg"
           />
           <h1 className="text-3xl font-bold text-gray-900">Smart Mailbox Cleaner</h1>
-          <p className="text-gray-500 mt-2">Free up Gmail storage — safely, in minutes</p>
+          <p className="text-gray-500 mt-2">Free up Gmail storage - safely, in minutes</p>
         </div>
 
         {/* Card */}
@@ -76,17 +76,17 @@ export default function Login() {
           {/* Special help panel for no_refresh_token */}
           {showRevokeHelp && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 mb-6">
-              <p className="text-sm font-semibold text-amber-900 mb-2">⚠️ One more step needed</p>
+              <p className="text-sm font-semibold text-amber-900 mb-2">Warning: One more step needed</p>
               <p className="text-sm text-amber-800 mb-3">
                 Google didn't send a login token. This happens when you previously connected this app.
-                To fix it, click the button below — it will ask Google to grant fresh access.
+                To fix it, click the button below - it will ask Google to grant fresh access.
               </p>
               <button
                 onClick={() => handleGoogleLogin(true)}
                 disabled={isConnecting}
                 className="w-full text-sm bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors disabled:opacity-60"
               >
-                {isConnecting ? 'Redirecting…' : 'Re-authorize with Google →'}
+                {isConnecting ? 'Redirecting...' : 'Re-authorize with Google ->'}
               </button>
               <p className="text-xs text-amber-700 mt-2 text-center">
                 Or go to{' '}
@@ -119,7 +119,7 @@ export default function Login() {
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
               </svg>
             )}
-            {isConnecting ? 'Connecting to Google…' : 'Continue with Google'}
+            {isConnecting ? 'Connecting to Google...' : 'Continue with Google'}
           </button>
           {isConnecting && (
             <p className="text-xs text-blue-600 mt-3 text-center">
@@ -130,10 +130,10 @@ export default function Login() {
           {/* Features */}
           <div className="mt-8 space-y-3">
             {[
-              { icon: '🔒', text: 'We never read your email content' },
-              { icon: '🗑️', text: 'Emails moved to Trash, never deleted permanently' },
-              { icon: '↩️', text: 'Undo any cleanup within 30 days' },
-              { icon: '📊', text: 'See exactly how much space you can free' },
+              { icon: 'SEC', text: 'We never read your email content' },
+              { icon: 'BIN', text: 'Emails moved to Trash, never deleted permanently' },
+              { icon: 'UNDO', text: 'Undo any cleanup within 30 days' },
+              { icon: 'SCAN', text: 'See exactly how much space you can free' },
             ].map((f, i) => (
               <div key={i} className="flex items-center gap-3">
                 <span className="text-lg">{f.icon}</span>

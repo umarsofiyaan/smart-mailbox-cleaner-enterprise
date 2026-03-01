@@ -49,7 +49,7 @@ const HAS_OPTIONS = [
 
 const READ_OPTIONS = [
   { value: 'all',    label: 'Read & unread' },
-  { value: 'read',   label: '✓  Read only' },
+  { value: 'read',   label: 'OK  Read only' },
   { value: 'unread', label: '●  Unread only' },
 ];
 
@@ -162,7 +162,7 @@ function CountPill({ estimate, loading }) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
         <span className="w-2.5 h-2.5 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-        Counting…
+        Counting...
       </span>
     );
   }
@@ -340,7 +340,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
               onClick={onClose}
               className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors text-xl leading-none"
             >
-              ×
+              x
             </button>
           </div>
         </div>
@@ -397,7 +397,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
               <div className="flex items-center gap-2 mb-1.5">
                 <label className="text-xs text-gray-500">Or use a specific date range</label>
                 {(params.dateFrom || params.dateTo) && (
-                  <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-medium">Active — Age filter disabled</span>
+                  <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full font-medium">Active - Age filter disabled</span>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -492,7 +492,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
               checked={params.excludeStarred}
               onChange={v => setParam('excludeStarred', v)}
               label="Skip starred emails"
-              sublabel="Recommended — starred emails are usually important"
+              sublabel="Recommended - starred emails are usually important"
             />
           </div>
 
@@ -556,7 +556,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
             {isScanning ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Starting…
+                Starting...
               </>
             ) : (
               <>

@@ -22,7 +22,7 @@ if (SENTRY_DSN) {
       new Sentry.BrowserTracing(),
       // Captures React render errors (works with ErrorBoundary below)
       new Sentry.Replay({
-        // Only record sessions that have an error — saves quota
+        // Only record sessions that have an error - saves quota
         maskAllText: true,         // mask all text for privacy
         blockAllMedia: true,       // don't capture screenshots of emails
         sessionSampleRate: 0,      // don't record normal sessions

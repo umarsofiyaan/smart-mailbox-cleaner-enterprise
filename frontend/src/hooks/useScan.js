@@ -126,7 +126,7 @@ export function useScan() {
       setScanId(latestId);
       setStatus('complete');
     } catch {
-      // No previous scan — stays idle
+      // No previous scan - stays idle
     }
   }, []);
 

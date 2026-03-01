@@ -74,7 +74,7 @@ const FREE_FEATURES = [
 const PRO_FEATURES = [
   'Everything in Free',
   'Full mailbox scan (all years)',
-  'Custom scan — filter by date, size, sender',
+  'Custom scan - filter by date, size, sender',
   'Unlimited bulk cleanup',
   'Undo any cleanup for 30 days',
   'Priority support',
@@ -164,7 +164,7 @@ function PlanCard({ plan, isCurrentPlan, onUpgrade, loading }) {
       {/* Savings label */}
       {plan.savingsLabel && (
         <p className={`text-xs font-semibold mb-4 ${isBestValue ? 'text-yellow-300' : 'text-green-600'}`}>
-          ✓ {plan.savingsLabel}
+          OK {plan.savingsLabel}
         </p>
       )}
 
@@ -179,7 +179,7 @@ function PlanCard({ plan, isCurrentPlan, onUpgrade, loading }) {
           <div className={`text-center py-3 rounded-xl text-sm font-semibold ${
             isBestValue ? 'bg-brand-500 text-brand-100' : 'bg-green-50 text-green-700'
           }`}>
-            ✓ Current plan
+            OK Current plan
           </div>
         ) : (
           <button
@@ -194,7 +194,7 @@ function PlanCard({ plan, isCurrentPlan, onUpgrade, loading }) {
             {loading === plan.id ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                Opening…
+                Opening...
               </>
             ) : (
               'Subscribe'
@@ -288,7 +288,7 @@ export default function Pricing() {
             Simple, honest pricing
           </h1>
           <p className="text-gray-500 text-lg max-w-xl mx-auto">
-            Start free. Pick a Pro plan when you're ready — cancel anytime.
+            Start free. Pick a Pro plan when you're ready - cancel anytime.
           </p>
         </div>
 
@@ -312,7 +312,7 @@ export default function Pricing() {
             <ul className="space-y-2.5 mb-6">
               {FREE_FEATURES.map((f, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                  <span className="text-gray-300 mt-0.5 flex-shrink-0">✓</span> {f}
+                  <span className="text-gray-300 mt-0.5 flex-shrink-0">OK</span> {f}
                 </li>
               ))}
             </ul>
@@ -331,7 +331,7 @@ export default function Pricing() {
             <ul className="space-y-2.5">
               {PRO_FEATURES.slice(1).map((f, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                  <span className="text-brand-500 mt-0.5 flex-shrink-0 font-bold">✓</span> {f}
+                  <span className="text-brand-500 mt-0.5 flex-shrink-0 font-bold">OK</span> {f}
                 </li>
               ))}
             </ul>
@@ -358,7 +358,7 @@ export default function Pricing() {
 
         {/* ── Money back note ───────────────────────────────────────────────── */}
         <p className="text-center text-xs text-gray-400 mt-6">
-          100% refund within 7 days · Cancel anytime · No questions asked
+          100% refund within 7 days - Cancel anytime - No questions asked
         </p>
 
         {/* ── FAQ ───────────────────────────────────────────────────────────── */}
@@ -367,11 +367,11 @@ export default function Pricing() {
           {[
             {
               q: 'Is my email content ever stored?',
-              a: 'Never. We only read metadata — like email size and date. We never access or store the content of your messages.',
+              a: 'Never. We only read metadata - like email size and date. We never access or store the content of your messages.',
             },
             {
               q: 'What happens when I "clean" emails?',
-              a: 'Emails are moved to your Gmail Trash — never permanently deleted. You can restore them any time within 30 days. Gmail empties Trash automatically after 30 days.',
+              a: 'Emails are moved to your Gmail Trash - never permanently deleted. You can restore them any time within 30 days. Gmail empties Trash automatically after 30 days.',
             },
             {
               q: 'Can I switch plans later?',
@@ -379,7 +379,7 @@ export default function Pricing() {
             },
             {
               q: 'What happens when my plan ends?',
-              a: 'You automatically revert to the Free tier — 5,000 lifetime cleanup credits. Your history, scan results, and data are preserved.',
+              a: 'You automatically revert to the Free tier - 5,000 lifetime cleanup credits. Your history, scan results, and data are preserved.',
             },
             {
               q: 'What Gmail permissions are used?',

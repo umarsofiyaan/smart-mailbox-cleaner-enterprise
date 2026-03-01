@@ -15,7 +15,7 @@ const STEPS = [
   {
     id: '2sv',
     emoji: '🔐',
-    title: 'Step 1 — Enable 2-Step Verification',
+    title: 'Step 1 - Enable 2-Step Verification',
     subtitle: 'Google requires 2-Step Verification (2SV) to be enabled before third-party apps like this one can access your Gmail.',
     content: [
       'Go to your Google Account security settings',
@@ -30,10 +30,10 @@ const STEPS = [
   {
     id: 'gmail-api',
     emoji: '⚙️',
-    title: 'Step 2 — Enable Gmail API Access',
+    title: 'Step 2 - Enable Gmail API Access',
     subtitle: 'You need to allow third-party apps to access Gmail. This is controlled in your Google Account settings.',
     content: [
-      'Go to your Google Account → Security',
+      'Go to your Google Account -> Security',
       'Scroll to "Third-party apps with account access"',
       'Make sure "Allow less secure apps" or API access is NOT blocked',
       'If you see a warning about API access, click "Allow"',

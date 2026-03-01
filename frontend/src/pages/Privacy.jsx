@@ -1,5 +1,5 @@
 // src/pages/Privacy.jsx
-// Privacy Policy — required for Google OAuth verification.
+// Privacy Policy - required for Google OAuth verification.
 // Covers: Gmail API usage, data collection, retention, third parties.
 
 export default function Privacy() {
@@ -55,18 +55,18 @@ export default function Privacy() {
             <H3>2.2 Gmail Metadata (NOT Email Content)</H3>
             <P>
               <strong>We never read, store, or process the body or content of your emails.</strong>{' '}
-              Our Service accesses only Gmail message metadata — specifically:
+              Our Service accesses only Gmail message metadata - specifically:
             </P>
             <ul className="list-disc pl-6 space-y-1 text-gray-600 text-sm mb-4">
               <li>Message size (in bytes)</li>
               <li>Message date and labels (e.g., "Promotions," "Social")</li>
               <li>Thread ID (to detect reply chains)</li>
-              <li>Attachment filename (e.g., "invite.ics") — not the attachment content</li>
+              <li>Attachment filename (e.g., "invite.ics") - not the attachment content</li>
               <li>Whether a message has an attachment or Drive link</li>
             </ul>
             <P>
               This metadata is used solely to categorise emails and estimate how much storage space
-              they occupy. It is <strong>never</strong> stored permanently on our servers — it is
+              they occupy. It is <strong>never</strong> stored permanently on our servers - it is
               processed in memory during a scan and then discarded.
             </P>
 
@@ -116,9 +116,9 @@ export default function Privacy() {
               {appName} requests the following Google OAuth scopes:
             </P>
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono text-gray-700 space-y-2">
-              <div><span className="text-brand-600">gmail.readonly</span> — Read message metadata (size, labels, dates). Used to scan and categorise emails.</div>
-              <div><span className="text-brand-600">gmail.modify</span> — Move messages to Trash and restore them. Used for cleanup and undo actions.</div>
-              <div><span className="text-brand-600">drive.metadata.readonly</span> — Check storage quota. Used to display your storage usage.</div>
+              <div><span className="text-brand-600">gmail.readonly</span> - Read message metadata (size, labels, dates). Used to scan and categorise emails.</div>
+              <div><span className="text-brand-600">gmail.modify</span> - Move messages to Trash and restore them. Used for cleanup and undo actions.</div>
+              <div><span className="text-brand-600">drive.metadata.readonly</span> - Check storage quota. Used to display your storage usage.</div>
             </div>
             <P>
               Our use of information received from Google APIs adheres to the{' '}
@@ -255,7 +255,7 @@ export default function Privacy() {
       </main>
 
       <footer className="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-gray-400">
-        <span>© 2026 {appName}</span>
+        <span>(c) 2026 {appName}</span>
         <div className="flex gap-4">
           <a href="/privacy" className="hover:text-gray-600">Privacy Policy</a>
           <a href="/terms" className="hover:text-gray-600">Terms of Service</a>

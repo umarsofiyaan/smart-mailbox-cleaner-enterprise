@@ -63,9 +63,9 @@ api.interceptors.response.use(
 export const authApi = {
   getGoogleAuthUrl: (stateOrForce, force = false) => {
     // Supports two call signatures:
-    //   getGoogleAuthUrl('extension')       → ?state=extension
-    //   getGoogleAuthUrl(true)              → ?force=true  (force consent, called from useAuth)
-    //   getGoogleAuthUrl('ext', true)       → ?state=ext&force=true
+    //   getGoogleAuthUrl('extension')       -> ?state=extension
+    //   getGoogleAuthUrl(true)              -> ?force=true  (force consent, called from useAuth)
+    //   getGoogleAuthUrl('ext', true)       -> ?state=ext&force=true
     const isForceOnly = stateOrForce === true;
     const state       = isForceOnly ? '' : (stateOrForce || '');
     const forceFlag   = isForceOnly || force;

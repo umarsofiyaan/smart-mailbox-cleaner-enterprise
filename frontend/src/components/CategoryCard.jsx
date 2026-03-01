@@ -128,7 +128,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
           </div>
         </div>
 
-        {/* Confidence breakdown — medium and review badges are clickable */}
+        {/* Confidence breakdown - medium and review badges are clickable */}
         <div className="flex flex-wrap gap-2 text-xs mb-4">
           {category.highCount > 0 && (
             <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full">
@@ -193,7 +193,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
           </button>
         )}
 
-        {/* Action button — Pro: unlimited | Free with quota: capped | Exhausted: offer upgrade | Neither: Pro required */}
+        {/* Action button - Pro: unlimited | Free with quota: capped | Exhausted: offer upgrade | Neither: Pro required */}
         {isPro ? (
           <button
             onClick={() => onCleanup({
@@ -256,7 +256,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
 			</p>
           </div>
         ) : (
-          // Not pro, no quota info yet — show Pro required
+          // Not pro, no quota info yet - show Pro required
           <div className="bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-100 rounded-xl p-3 text-center">
             <p className="text-xs text-gray-600">
               <span className="font-semibold text-brand-700">Pro required</span> to clean up

@@ -44,7 +44,7 @@ function ExtensionAuth() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center">
-        <p className="text-2xl mb-2">✓</p>
+        <p className="text-2xl mb-2">OK</p>
         <p className="font-semibold text-gray-900">Connected! You can close this tab.</p>
       </div>
     </div>
@@ -56,7 +56,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          {/* Public — accessible without login */}
+          {/* Public - accessible without login */}
           <Route path="/"               element={<Home />} />      {/* ← public home page, not redirect */}
           <Route path="/login"          element={<Login />} />
           <Route path="/pricing"        element={<Pricing />} />
@@ -64,7 +64,7 @@ export default function App() {
           <Route path="/terms"          element={<Terms />} />
           <Route path="/extension-auth" element={<ExtensionAuth />} />
 
-          {/* Protected — require login */}
+          {/* Protected - require login */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/admin"     element={<AdminRoute><Admin /></AdminRoute>} />
         </Routes>
