@@ -383,6 +383,7 @@ export default function Dashboard() {
         markCleanupCategoryPending(pendingCleanup.category);
         setPendingCleanup(null);
         setHistoryKey(k => k + 1);
+        setTimeout(() => scrollToSection('cleanup-history'), 150);
         // Refresh shortly so user sees pending/completed transition.
         setTimeout(() => setHistoryKey(k => k + 1), 15000);
         return;
@@ -608,7 +609,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {uiNotice && (
+        {uiNotice && uiNotice.type !== 'info' && (
           <div className={`border rounded-xl px-5 py-4 mb-6 ${
             uiNotice.type === 'error'
               ? 'bg-red-50 border-red-100'
@@ -631,6 +632,31 @@ export default function Dashboard() {
               >
                 x
               </button>
+            </div>
+          </div>
+        )}
+
+        {uiNotice?.type === 'info' && (
+          <div className="fixed bottom-4 right-4 z-50 max-w-md w-[calc(100vw-2rem)] sm:w-auto">
+            <div className="bg-white border border-indigo-200 rounded-xl shadow-xl p-4">
+              <p className="text-sm text-indigo-700 font-medium leading-snug">{uiNotice.message}</p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    scrollToSection('cleanup-history');
+                    setUiNotice(null);
+                  }}
+                  className="text-xs font-semibold bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700"
+                >
+                  View status
+                </button>
+                <button
+                  onClick={() => setUiNotice(null)}
+                  className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -858,6 +884,17 @@ export default function Dashboard() {
         onCreatePlaybook={handleCreatePlaybookFromCustom}
         isScanning={isRunning}
       />
+
+      {pendingCleanupCategories.size > 0 && (
+        <div className="fixed bottom-4 left-4 z-50">
+          <button
+            onClick={() => scrollToSection('cleanup-history')}
+            className="bg-indigo-600 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold hover:bg-indigo-700"
+          >
+            {pendingCleanupCategories.size} cleanup{pendingCleanupCategories.size > 1 ? 's' : ''} running - View
+          </button>
+        </div>
+      )}
     </div>
   );
 }
