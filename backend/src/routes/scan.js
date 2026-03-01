@@ -221,20 +221,12 @@ function buildCustomQuery(params) {
 router.post('/preview-custom', requireAuth, async (req, res) => {
   try {
     const tokens = await getOAuthTokens(req.user.id);
-    const { getGmailClient } = require('../services/gmailService');
+    const { getGmailClient, countMessagesByQuery } = require('../services/gmailService');
 
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
     const q = buildCustomQuery(req.body);
-
-    // Gmail returns a server-side estimate without full traversal.
-    const response = await gmail.users.messages.list({
-      userId: 'me',
-      q,
-      fields: 'resultSizeEstimate,nextPageToken',
-    });
-
-    const estimate = Number(response.data.resultSizeEstimate || 0);
-    return res.json({ estimate, query: q });
+    const { count, isLowerBound } = await countMessagesByQuery(gmail, q, { maxCount: 5000 });
+    return res.json({ estimate: count, isLowerBound, query: q });
   } catch (err) {
     logger.error('Custom scan preview failed', { err: err.message });
     return res.status(500).json({ error: 'Preview failed.', estimate: null });

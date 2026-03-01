@@ -157,7 +157,7 @@ function Toggle({ checked, onChange, label, sublabel }) {
   );
 }
 
-function CountPill({ estimate, loading }) {
+function CountPill({ estimate, loading, isLowerBound }) {
   if (loading) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
@@ -176,7 +176,7 @@ function CountPill({ estimate, loading }) {
   }
   return (
     <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-2.5 py-1 rounded-full">
-      ~{estimate.toLocaleString()} emails match
+      ~{estimate.toLocaleString()}{isLowerBound ? '+' : ''} emails match
     </span>
   );
 }
@@ -231,6 +231,7 @@ const DEFAULT_PARAMS = {
 export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePlaybook, isScanning }) {
   const [params,         setParams]         = useState(DEFAULT_PARAMS);
   const [estimate,       setEstimate]       = useState(null);
+  const [estimateLowerBound, setEstimateLowerBound] = useState(false);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [showQuery,      setShowQuery]      = useState(false);
   const [error,          setError]          = useState('');
@@ -245,6 +246,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
     if (isOpen) {
       setParams(DEFAULT_PARAMS);
       setEstimate(null);
+      setEstimateLowerBound(false);
       setError('');
     }
   }, [isOpen]);
@@ -253,14 +255,21 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
   const fetchEstimate = useCallback(async (p) => {
     if (!hasAnyFilter(p)) {
       setEstimate(null);
+      setEstimateLowerBound(false);
       return;
     }
     setEstimateLoading(true);
     try {
       const res = await scanApi.previewCustomScan(p);
-      if (isMounted.current) setEstimate(res.data.estimate);
+      if (isMounted.current) {
+        setEstimate(res.data.estimate);
+        setEstimateLowerBound(!!res.data.isLowerBound);
+      }
     } catch {
-      if (isMounted.current) setEstimate(null);
+      if (isMounted.current) {
+        setEstimate(null);
+        setEstimateLowerBound(false);
+      }
     } finally {
       if (isMounted.current) setEstimateLoading(false);
     }
@@ -286,6 +295,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
   function reset() {
     setParams(DEFAULT_PARAMS);
     setEstimate(null);
+    setEstimateLowerBound(false);
     setError('');
   }
 
@@ -335,7 +345,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
             <p className="text-xs text-gray-400 mt-0.5">Define exactly what to find and clean</p>
           </div>
           <div className="flex items-center gap-2">
-            <CountPill estimate={estimate} loading={estimateLoading} />
+            <CountPill estimate={estimate} loading={estimateLoading} isLowerBound={estimateLowerBound} />
             <button
               onClick={onClose}
               className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors text-xl leading-none"
@@ -563,7 +573,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
                 🔍 Run Custom Scan
                 {estimate !== null && estimate > 0 && (
                   <span className="bg-indigo-500 text-white text-xs px-1.5 py-0.5 rounded-full">
-                    ~{estimate > 999 ? `${Math.round(estimate / 1000)}k` : estimate}
+                    ~{estimate > 999 ? `${Math.round(estimate / 1000)}k` : estimate}{estimateLowerBound ? '+' : ''}
                   </span>
                 )}
               </>

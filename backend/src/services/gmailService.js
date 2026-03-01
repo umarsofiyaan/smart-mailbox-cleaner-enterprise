@@ -276,6 +276,38 @@ async function batchTrashMessages(gmail, messageIds, onProgress = null) {
 }
 
 /**
+ * Count query matches by traversing pages (more reliable than resultSizeEstimate).
+ * Returns a lower-bound when maxCount is reached before traversal completes.
+ */
+async function countMessagesByQuery(gmail, q, options = {}) {
+  const {
+    maxCount = 5000,
+    pageDelayMs = 150,
+  } = options;
+
+  let count = 0;
+  let pageToken = null;
+  let hasMore = false;
+
+  do {
+    const { messages, nextPageToken } = await listMessages(gmail, q, pageToken, 500);
+    count += (messages || []).length;
+    pageToken = nextPageToken;
+
+    if (count >= maxCount) {
+      hasMore = !!pageToken;
+      return { count: maxCount, isLowerBound: hasMore };
+    }
+
+    if (pageToken) {
+      await sleep(pageDelayMs);
+    }
+  } while (pageToken);
+
+  return { count, isLowerBound: false };
+}
+
+/**
  * Get an approximate total count of messages currently in Trash.
  */
 async function getTrashEstimate(gmail) {
@@ -438,6 +470,7 @@ module.exports = {
   getStorageQuota,
   listMessages,
   collectMessageIdsByQuery,
+  countMessagesByQuery,
   getTrashEstimate,
   getTrashConversationEstimate,
   getMessageMetadata,
