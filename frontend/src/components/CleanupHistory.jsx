@@ -62,6 +62,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const conversationCount = action.conversationCount || 0;
   const trashConversationsBefore = action.trashConversationsBefore || 0;
   const estimatedNewConversationsInTrash = action.estimatedNewConversationsInTrash || 0;
+  const sourceQuery = action.sourceQuery || '';
   const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
 
   return (
@@ -94,6 +95,11 @@ function HistoryRow({ action, onUndo, undoingId }) {
         {!isPending && conversationCount > 0 && movedCount > conversationCount && (
           <p className="text-xs text-gray-400 mt-0.5">
             Gmail search shows total Trash conversations, not only this cleanup action.
+          </p>
+        )}
+        {!isPending && sourceQuery && (
+          <p className="text-xs text-gray-400 mt-0.5">
+            Compare in Gmail by clearing filter chips and searching: <span className="font-mono">in:trash {sourceQuery}</span>
           </p>
         )}
         {isPending && (

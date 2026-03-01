@@ -204,6 +204,7 @@ async function executeCleanupJob(job) {
         processedCount: effectiveIds.length,
         successCount: result.successCount,
         conversationCount: result.conversationCount || 0,
+        sourceQuery: cleanupMode === 'query' ? customQuery : null,
         failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
         undoExpiresAt: result.undoExpiresAt,
