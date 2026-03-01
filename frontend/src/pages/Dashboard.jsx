@@ -396,6 +396,7 @@ export default function Dashboard() {
   // Combined error: hook error OR local custom scan error
   const displayError = error || (customScanError && !customScanError.startsWith('⏳') && !customScanError.startsWith('🔍') ? customScanError : '');
   const infoMessage  = customScanError && (customScanError.startsWith('⏳') || customScanError.startsWith('🔍')) ? customScanError : '';
+  const isConflictInfo = typeof displayError === 'string' && displayError.toLowerCase().includes('already in progress');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -509,11 +510,13 @@ export default function Dashboard() {
 
         {/* Error (scan failed or custom scan init failed) */}
         {displayError && (
-          <div className="bg-red-50 border border-red-100 rounded-xl px-5 py-4 mb-6">
-            <p className="text-red-700 font-medium">
-              {displayError.startsWith('❌') ? displayError : `Scan failed: ${displayError}`}
+          <div className={`${isConflictInfo ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100'} border rounded-xl px-5 py-4 mb-6`}>
+            <p className={`${isConflictInfo ? 'text-blue-700' : 'text-red-700'} font-medium`}>
+              {isConflictInfo
+                ? displayError
+                : (displayError.startsWith('❌') ? displayError : `Scan failed: ${displayError}`)}
             </p>
-            {(displayError.toLowerCase().includes('api') || displayError.toLowerCase().includes('disabled')) && (
+            {!isConflictInfo && (displayError.toLowerCase().includes('api') || displayError.toLowerCase().includes('disabled')) && (
               <p className="text-red-600 text-sm mt-2">
                 💡 Gmail API may not be enabled.{' '}
                 <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
@@ -522,9 +525,11 @@ export default function Dashboard() {
                 </a>
               </p>
             )}
-            <button onClick={handleQuickScan} className="text-red-600 text-sm underline mt-2 block">
-              Try quick scan instead
-            </button>
+            {!isConflictInfo && (
+              <button onClick={handleQuickScan} className="text-red-600 text-sm underline mt-2 block">
+                Try quick scan instead
+              </button>
+            )}
           </div>
         )}
 

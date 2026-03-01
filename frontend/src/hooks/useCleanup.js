@@ -31,7 +31,13 @@ export function useCleanup() {
       setLastAction(response.data);
       return response.data;
     } catch (err) {
+      const statusCode = err?.response?.status;
       const msg = err.response?.data?.error || err.message || 'Cleanup failed.';
+      if (statusCode === 409) {
+        const friendly = 'A cleanup is already in progress. Please check Cleanup History.';
+        setError(friendly);
+        throw new Error(friendly);
+      }
       setError(msg);
       throw new Error(msg);
     } finally {

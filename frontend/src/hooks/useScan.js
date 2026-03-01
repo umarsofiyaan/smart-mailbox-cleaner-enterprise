@@ -55,7 +55,20 @@ export function useScan() {
       await pollScan(newScanId);
 
     } catch (err) {
+      const statusCode = err?.response?.status;
       const msg = err.response?.data?.error || 'Failed to start scan.';
+      if (statusCode === 409) {
+        setError('A scan is already in progress. Please wait for it to finish.');
+        setStatus('running');
+        const existingId = err?.response?.data?.scanId;
+        if (existingId) {
+          setScanId(existingId);
+          stopPolling();
+          pollRef.current = setInterval(() => pollScan(existingId), POLL_INTERVAL_MS);
+          await pollScan(existingId);
+        }
+        return;
+      }
       setError(msg);
       setStatus('failed');
       throw err;
@@ -80,7 +93,20 @@ export function useScan() {
       await pollScan(newScanId);
 
     } catch (err) {
+      const statusCode = err?.response?.status;
       const msg = err.response?.data?.error || 'Failed to start custom scan.';
+      if (statusCode === 409) {
+        setError('A scan is already in progress. Please wait for it to finish.');
+        setStatus('running');
+        const existingId = err?.response?.data?.scanId;
+        if (existingId) {
+          setScanId(existingId);
+          stopPolling();
+          pollRef.current = setInterval(() => pollScan(existingId), POLL_INTERVAL_MS);
+          await pollScan(existingId);
+        }
+        return;
+      }
       setError(msg);
       setStatus('failed');
       throw err;
