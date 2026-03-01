@@ -82,12 +82,23 @@ async function createCleanupAction(userId, scanId, category, estimatedBytes = 0,
   return actionResult.rows[0];
 }
 
-async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, tokenExpiry = null) {
+async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, tokenExpiry = null, onProgress = null) {
   if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
 
   const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokenExpiry);
   const metadata = await batchGetMessageMetadata(gmail, messageIds);
-  const result = await batchTrashMessages(gmail, messageIds);
+  const result = await batchTrashMessages(gmail, messageIds, async (progress) => {
+    await query(
+      `UPDATE cleanup_actions
+       SET message_count = $1
+       WHERE id = $2 AND status = 'pending'`,
+      [progress.movedCount, actionId]
+    );
+
+    if (typeof onProgress === 'function') {
+      await onProgress(progress);
+    }
+  });
 
   await query(
     `UPDATE cleanup_actions

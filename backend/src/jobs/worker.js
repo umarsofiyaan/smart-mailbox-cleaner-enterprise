@@ -147,6 +147,9 @@ async function executeCleanupJob(job) {
         : [];
     }
 
+    // Guard against repeated IDs from broad/paginated matches.
+    effectiveIds = Array.from(new Set(effectiveIds));
+
     await patchJobPayload(job.id, {
       progress: { stage: 'moving_to_trash', matchedCount: effectiveIds.length },
     });
@@ -159,7 +162,24 @@ async function executeCleanupJob(job) {
       throw new Error('No matching emails found for cleanup.');
     }
 
-    const result = await runCleanupAction(actionId, effectiveIds, estimatedBytes, tokens, tokens.tokenExpiry);
+    const result = await runCleanupAction(
+      actionId,
+      effectiveIds,
+      estimatedBytes,
+      tokens,
+      tokens.tokenExpiry,
+      async ({ movedCount, failedCount, totalCount }) => {
+        await patchJobPayload(job.id, {
+          progress: {
+            stage: 'moving_to_trash',
+            matchedCount: effectiveIds.length,
+            movedCount,
+            failedCount,
+            totalCount,
+          },
+        });
+      }
+    );
     await consumeQuota(job.user_id, result.successCount);
 
     await patchJobPayload(job.id, {

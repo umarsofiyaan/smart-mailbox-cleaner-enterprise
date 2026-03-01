@@ -74,7 +74,15 @@ function ReviewEmailRow({ msg }) {
   );
 }
 
-export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuota, quotaRemaining, isLoading }) {
+export default function CategoryCard({
+  category,
+  onCleanup,
+  isPro,
+  isFreeWithQuota,
+  quotaRemaining,
+  isLoading,
+  isLocked = false,
+}) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const colors = COLOR_MAP[category.color] || COLOR_MAP.gray;
 
@@ -93,6 +101,8 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
 
   const showableMessages = [...reviewMessages, ...mediumMessages];
   const hasReviewEmails = showableMessages.length > 0;
+
+  const isBusy = isLoading || isLocked;
 
   return (
     <div className={clsx(
@@ -205,7 +215,7 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
               cleanupMode: isQueryCleanup ? 'query' : 'ids',
               customQuery: isQueryCleanup ? category.cleanup.query : null,
             })}
-            disabled={isLoading || (!isQueryCleanup && allMessageIds.length === 0)}
+            disabled={isBusy || (!isQueryCleanup && allMessageIds.length === 0)}
             className={clsx(
               'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
               isQueryCleanup || allMessageIds.length > 0
@@ -213,35 +223,41 @@ export default function CategoryCard({ category, onCleanup, isPro, isFreeWithQuo
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             )}
           >
-            {isLoading ? 'Moving to Trash\u2026' : `Move to Trash (${category.messageCount.toLocaleString()})`}
+            {isLocked
+              ? 'Cleanup already running...'
+              : isLoading
+                ? 'Moving to Trash...'
+                : `Move to Trash (${category.messageCount.toLocaleString()})`}
           </button>
         ) : isFreeWithQuota && quotaRemaining > 0 ? (
           // Free user with quota remaining
           <div className="space-y-2">
             <button
-              onClick={() => onCleanup({
-                category: category.key,
-                messageIds: isQueryCleanup ? [] : allMessageIds.slice(0, quotaRemaining),
-                estimatedBytes: category.totalBytes,
-                label: category.label,
-                messageCount: Math.min(category.messageCount, quotaRemaining),
-                cleanupMode: isQueryCleanup ? 'query' : 'ids',
-                customQuery: isQueryCleanup ? category.cleanup.query : null,
-              })}
-              disabled={isLoading || (!isQueryCleanup && allMessageIds.length === 0)}
-              className={clsx(
-                'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
-                isQueryCleanup || allMessageIds.length > 0
-                  ? 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
-                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              )}
-            >
-              {isLoading
-                ? 'Moving to Trash\u2026'
+            onClick={() => onCleanup({
+              category: category.key,
+              messageIds: isQueryCleanup ? [] : allMessageIds.slice(0, quotaRemaining),
+              estimatedBytes: category.totalBytes,
+              label: category.label,
+              messageCount: Math.min(category.messageCount, quotaRemaining),
+              cleanupMode: isQueryCleanup ? 'query' : 'ids',
+              customQuery: isQueryCleanup ? category.cleanup.query : null,
+            })}
+            disabled={isBusy || (!isQueryCleanup && allMessageIds.length === 0)}
+            className={clsx(
+              'w-full py-2.5 rounded-xl text-sm font-semibold transition-all',
+              isQueryCleanup || allMessageIds.length > 0
+                ? 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            )}
+          >
+            {isLocked
+              ? 'Cleanup already running...'
+              : isLoading
+                ? 'Moving to Trash...'
                 : category.messageCount <= quotaRemaining
-                  ? `Move to Trash (${category.messageCount.toLocaleString()})`
-                  : `Move ${quotaRemaining.toLocaleString()} to Trash (quota limit)`}
-            </button>
+                    ? `Move to Trash (${category.messageCount.toLocaleString()})`
+                    : `Move ${quotaRemaining.toLocaleString()} to Trash (quota limit)`}
+          </button>
             {category.messageCount > quotaRemaining && (
               <p className="text-xs text-center text-amber-600">
                 You have {quotaRemaining} free credits. {category.messageCount - quotaRemaining} emails need Pro.

@@ -15,6 +15,7 @@ export function useCleanup() {
     estimatedBytes,
     cleanupMode = 'ids',
     customQuery,
+    expectedMessageCount,
   }) => {
     setExecuting(true);
     setError(null);
@@ -27,6 +28,7 @@ export function useCleanup() {
         estimatedBytes,
         cleanupMode,
         customQuery,
+        expectedMessageCount,
       });
       setLastAction(response.data);
       return response.data;
@@ -34,9 +36,13 @@ export function useCleanup() {
       const statusCode = err?.response?.status;
       const msg = err.response?.data?.error || err.message || 'Cleanup failed.';
       if (statusCode === 409) {
-        const friendly = 'A cleanup is already in progress. Please check Cleanup History.';
+        const data = err?.response?.data || {};
+        const friendly = data.error || 'A cleanup is already in progress. Please check Cleanup History.';
         setError(friendly);
-        throw new Error(friendly);
+        const conflictError = new Error(friendly);
+        conflictError.code = data.code || 'CLEANUP_ALREADY_RUNNING';
+        conflictError.data = data;
+        throw conflictError;
       }
       setError(msg);
       throw new Error(msg);

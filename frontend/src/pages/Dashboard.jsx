@@ -161,6 +161,7 @@ export default function Dashboard() {
   const [customScanError,       setCustomScanError]       = useState(''); // separate error for custom scan init failures
   const [taskNotice,            setTaskNotice]            = useState(null);
   const [uiNotice,              setUiNotice]              = useState(null);
+  const [pendingCleanupCategories, setPendingCleanupCategories] = useState(new Set());
   const profileMenuRef = useRef(null);
 
   const isPro       = user?.subscription?.isPro;
@@ -176,6 +177,11 @@ export default function Dashboard() {
 
   const scrollToSection = (id) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const markCleanupCategoryPending = (category) => {
+    if (!category) return;
+    setPendingCleanupCategories(prev => new Set([...prev, category]));
   };
 
   // Close profile menu on outside click
@@ -337,6 +343,13 @@ export default function Dashboard() {
   function handleCleanupRequest(categoryData) {
     setTaskNotice(null);
     setUiNotice(null);
+    if (pendingCleanupCategories.has(categoryData.category)) {
+      setTaskNotice({
+        type: 'cleanup',
+        message: 'A cleanup is already running for this filter. Please check Cleanup History.',
+      });
+      return;
+    }
     if (!isPro && quotaRemaining <= 0) {
       document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
       return;
@@ -354,6 +367,7 @@ export default function Dashboard() {
         estimatedBytes: pendingCleanup.estimatedBytes,
         cleanupMode:    pendingCleanup.cleanupMode || 'ids',
         customQuery:    pendingCleanup.customQuery || undefined,
+        expectedMessageCount: pendingCleanup.messageCount || 0,
       });
 
       if (result?.queued) {
@@ -366,6 +380,7 @@ export default function Dashboard() {
             `Estimated time ~${eta} minute${eta > 1 ? 's' : ''}. ` +
             `You can leave this page and check Cleanup History later.`,
         });
+        markCleanupCategoryPending(pendingCleanup.category);
         setPendingCleanup(null);
         setHistoryKey(k => k + 1);
         // Refresh shortly so user sees pending/completed transition.
@@ -380,6 +395,7 @@ export default function Dashboard() {
     } catch (err) {
       const msg = err?.message || 'Cleanup failed.';
       if (isConflictMessage(msg)) {
+        markCleanupCategoryPending(pendingCleanup?.category);
         setTaskNotice({
           type: 'cleanup',
           message: msg,
@@ -751,6 +767,7 @@ export default function Dashboard() {
                       isFreeWithQuota={isFreeWithQuota}
                       quotaRemaining={quotaRemaining}
                       isLoading={executing}
+                      isLocked={pendingCleanupCategories.has(cat.key)}
                       onCleanup={handleCleanupRequest}
                     />
                   ))
@@ -797,6 +814,12 @@ export default function Dashboard() {
           <CleanupHistory
             key={historyKey}
             onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(); }}
+            onStateChange={(items) => {
+              const next = new Set((items || [])
+                .filter(action => action.status === 'pending')
+                .map(action => action.category));
+              setPendingCleanupCategories(next);
+            }}
           />
         </div>
 

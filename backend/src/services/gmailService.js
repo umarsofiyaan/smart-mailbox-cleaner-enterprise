@@ -234,9 +234,10 @@ async function batchGetMessageMetadata(gmail, messageIds) {
  * @param {object} gmail - Authenticated Gmail client
  * @param {string[]} messageIds
  */
-async function batchTrashMessages(gmail, messageIds) {
+async function batchTrashMessages(gmail, messageIds, onProgress = null) {
   const BATCH_SIZE = 1000;
   const results = { success: [], failed: [] };
+  const total = messageIds.length;
 
   for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
     const batch = messageIds.slice(i, i + BATCH_SIZE);
@@ -260,6 +261,14 @@ async function batchTrashMessages(gmail, messageIds) {
 
     if (i + BATCH_SIZE < messageIds.length) {
       await sleep(1000);
+    }
+
+    if (typeof onProgress === 'function') {
+      await onProgress({
+        movedCount: results.success.length,
+        failedCount: results.failed.length,
+        totalCount: total,
+      });
     }
   }
 

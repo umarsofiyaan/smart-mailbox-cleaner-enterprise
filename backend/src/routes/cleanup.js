@@ -24,6 +24,7 @@ router.post(
     body('estimatedBytes').optional().isInt({ min: 0 }),
     body('cleanupMode').optional().isIn(['ids', 'query']),
     body('customQuery').optional().isString().isLength({ min: 1, max: 2000 }),
+    body('expectedMessageCount').optional().isInt({ min: 0 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -36,6 +37,7 @@ router.post(
       estimatedBytes = 0,
       cleanupMode = 'ids',
       customQuery,
+      expectedMessageCount = 0,
     } = req.body;
     const userId = req.user.id;
 
@@ -68,6 +70,36 @@ router.post(
     }
 
     try {
+      const duplicateJob = await query(
+        `SELECT j.id AS job_id, (j.payload->>'actionId')::uuid AS action_id
+         FROM jobs j
+         JOIN cleanup_actions ca ON ca.id = (j.payload->>'actionId')::uuid
+         WHERE j.user_id = $1
+           AND j.job_type = 'CLEANUP'
+           AND j.status IN ('queued', 'running')
+           AND ca.status = 'pending'
+           AND COALESCE(j.payload->>'cleanupMode', 'ids') = $2
+           AND COALESCE(j.payload->>'category', '') = $3
+           AND (
+             ($2 = 'query' AND COALESCE(j.payload->>'customQuery', '') = COALESCE($4, ''))
+             OR
+             ($2 <> 'query' AND COALESCE(j.payload->>'scanId', '') = COALESCE($5::text, ''))
+           )
+         ORDER BY j.created_at DESC
+         LIMIT 1`,
+        [userId, cleanupMode, category, customQuery || null, scanId]
+      );
+
+      if (duplicateJob.rows[0]) {
+        return res.status(409).json({
+          error: 'A cleanup is already in progress for this filter.',
+          code: 'CLEANUP_ALREADY_RUNNING',
+          jobId: duplicateJob.rows[0].job_id,
+          actionId: duplicateJob.rows[0].action_id,
+        });
+      }
+
+      const declaredExpectedCount = Math.min(Number(expectedMessageCount) || 0, quotaCheck.remaining);
       const expectedCount = cleanupMode === 'query'
         ? 0
         : Math.min(messageIds.length, quotaCheck.remaining);
@@ -81,6 +113,7 @@ router.post(
         customQuery: cleanupMode === 'query' ? customQuery : null,
         messageIds: cleanupMode === 'ids' ? messageIds : [],
         estimatedBytes,
+        expectedMessageCount: declaredExpectedCount,
       });
 
       return res.status(202).json({
@@ -220,4 +253,3 @@ router.get('/quota', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-

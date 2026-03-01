@@ -73,7 +73,9 @@ function HistoryRow({ action, onUndo, undoingId }) {
           {(action.messageCount || 0).toLocaleString()} emails - {formatMB(action.bytesFreed)} freed - {formatDate(action.executedAt)}
         </p>
         {isPending && (
-          <p className="text-xs text-indigo-600 mt-0.5 font-medium">Processing in background...</p>
+          <p className="text-xs text-indigo-600 mt-0.5 font-medium">
+            {`${(action.messageCount || 0).toLocaleString()} moved so far. Processing in background...`}
+          </p>
         )}
         {isFailed && (
           <p className="text-xs text-red-600 mt-0.5 font-medium">
@@ -128,7 +130,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
   );
 }
 
-export default function CleanupHistory({ onUndoSuccess }) {
+export default function CleanupHistory({ onUndoSuccess, onStateChange }) {
   const [history, setHistory] = useState([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -158,6 +160,10 @@ export default function CleanupHistory({ onUndoSuccess }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    onStateChange?.(history);
+  }, [history, onStateChange]);
 
   useEffect(() => {
     const hasPending = history.some(h => h.status === 'pending');
