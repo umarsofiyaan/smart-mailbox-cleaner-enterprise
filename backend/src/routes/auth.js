@@ -1,6 +1,7 @@
 // src/routes/auth.js
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const crypto = require('crypto');
 const router = express.Router();
 
 const { getAuthUrl, exchangeCode, getGoogleProfile } = require('../config/google');
@@ -39,15 +40,74 @@ const REFRESH_COOKIE_OPTIONS = {
   path: '/auth/refresh',
 };
 
+const OAUTH_STATE_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'none',
+  maxAge: 10 * 60 * 1000, // 10 minutes
+  path: '/auth/google/callback',
+};
+
+function base64UrlEncode(str) {
+  return Buffer.from(str, 'utf8').toString('base64url');
+}
+
+function base64UrlDecode(str) {
+  return Buffer.from(str, 'base64url').toString('utf8');
+}
+
+function createOAuthState(mode, nonce) {
+  const secret = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET || 'fallback_state_secret';
+  const payload = {
+    mode,
+    nonce,
+    iat: Date.now(),
+  };
+  const encoded = base64UrlEncode(JSON.stringify(payload));
+  const sig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+}
+
+function verifyOAuthState(stateToken, expectedNonce) {
+  if (!stateToken || !expectedNonce || !stateToken.includes('.')) return { ok: false };
+
+  const [encoded, providedSig] = stateToken.split('.');
+  if (!encoded || !providedSig) return { ok: false };
+
+  const secret = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET || 'fallback_state_secret';
+  const expectedSig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+
+  // timing-safe compare
+  const providedBuf = Buffer.from(providedSig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+    return { ok: false };
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encoded));
+    const ageMs = Date.now() - Number(payload.iat || 0);
+    if (!payload?.nonce || !payload?.mode || payload.nonce !== expectedNonce) return { ok: false };
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > 10 * 60 * 1000) return { ok: false };
+    return { ok: true, payload };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // ─── GET /auth/google ─────────────────────────────────────────────────────────
 // Initiate OAuth flow. Returns Google redirect URL.
 // ?force=true  → forces the consent screen (get fresh refresh_token)
 // ?state=ext   → extension flow
 
 router.get('/google', authLimiter, (req, res) => {
-  const state        = req.query.state  || '';
+  const requestedState = req.query.state || '';
+  const mode = requestedState === 'extension' ? 'extension' : 'web';
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const state = createOAuthState(mode, nonce);
   const forceConsent = req.query.force === 'true';
   const authUrl      = getAuthUrl(state, forceConsent);
+  res.cookie('oauth_state_nonce', nonce, OAUTH_STATE_COOKIE_OPTIONS);
   res.json({ url: authUrl });
 });
 
@@ -56,6 +116,8 @@ router.get('/google', authLimiter, (req, res) => {
 
 router.get('/google/callback', authLimiter, async (req, res) => {
   const { code, state, error } = req.query;
+  const stateNonce = req.cookies?.oauth_state_nonce;
+  res.clearCookie('oauth_state_nonce', { path: '/auth/google/callback' });
 
   if (error) {
     logger.warn('Google OAuth error returned', { error });
@@ -65,6 +127,13 @@ router.get('/google/callback', authLimiter, async (req, res) => {
   if (!code) {
     return res.redirect(`${process.env.FRONTEND_URL}/login?error=no_code`);
   }
+
+  const verified = verifyOAuthState(state, stateNonce);
+  if (!verified.ok) {
+    logger.warn('Invalid OAuth state detected', { hasState: !!state, hasNonce: !!stateNonce });
+    return res.redirect(`${process.env.FRONTEND_URL}/login?error=invalid_state`);
+  }
+  const oauthMode = verified.payload.mode === 'extension' ? 'extension' : 'web';
 
   try {
     const tokens  = await exchangeCode(code);
@@ -153,7 +222,7 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     const refreshToken = generateRefreshToken(user.id);
     await storeRefreshTokenHash(user.id, refreshToken);
 
-    if (state === 'extension') {
+    if (oauthMode === 'extension') {
       return res.redirect(
         `${process.env.FRONTEND_URL}/extension-auth?access_token=${accessToken}&refresh_token=${refreshToken}`
       );
