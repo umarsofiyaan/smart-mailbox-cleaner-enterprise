@@ -79,6 +79,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ── Health check ──────────────────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    service: 'smart-mailbox-cleaner-api',
+    status: 'ok',
+    health: '/health',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
