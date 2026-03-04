@@ -1,5 +1,6 @@
 // src/pages/Terms.jsx
 // Terms of Service - required for Google OAuth verification.
+import { Link } from 'react-router-dom';
 
 export default function Terms() {
   const lastUpdated = 'February 22, 2026';
@@ -12,12 +13,12 @@ export default function Terms() {
       {/* Header */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-3xl mx-auto px-6 py-5 flex items-center gap-3">
-          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+          <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
               <span className="text-sm">📬</span>
             </div>
             <span className="font-bold text-gray-900">{appName}</span>
-          </a>
+          </Link>
           <span className="text-gray-300 mx-1">/</span>
           <span className="text-gray-500 text-sm">Terms of Service</span>
         </div>
@@ -235,8 +236,8 @@ export default function Terms() {
       <footer className="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-gray-400">
         <span>(c) 2026 {appName}</span>
         <div className="flex gap-4">
-          <a href="/privacy" className="hover:text-gray-600">Privacy Policy</a>
-          <a href="/terms" className="hover:text-gray-600">Terms of Service</a>
+          <Link to="/privacy" className="hover:text-gray-600">Privacy Policy</Link>
+          <Link to="/terms" className="hover:text-gray-600">Terms of Service</Link>
         </div>
       </footer>
     </div>

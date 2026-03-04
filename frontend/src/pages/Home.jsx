@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 // src/pages/Home.jsx
 // PUBLIC landing page - no auth required.
 // This fixes Google's issues:
@@ -52,8 +54,8 @@ export default function Home() {
             <span className="font-bold text-gray-900 text-sm">Smart Mailbox Cleaner</span>
           </div>
           <div className="flex items-center gap-6">
-            <a href="/privacy" className="text-sm text-gray-500 hover:text-gray-900">Privacy Policy</a>
-            <a href="/terms"   className="text-sm text-gray-500 hover:text-gray-900">Terms</a>
+            <Link to="/privacy" className="text-sm text-gray-500 hover:text-gray-900">Privacy Policy</Link>
+            <Link to="/terms" className="text-sm text-gray-500 hover:text-gray-900">Terms</Link>
             <button
               onClick={handleGetStarted}
               disabled={isConnecting}
@@ -230,8 +232,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-6 text-sm text-gray-500">
             {/* IMPORTANT: These links are what Google checks for */}
-            <a href="/privacy" className="hover:text-gray-900 font-medium">Privacy Policy</a>
-            <a href="/terms"   className="hover:text-gray-900">Terms of Service</a>
+            <Link to="/privacy" className="hover:text-gray-900 font-medium">Privacy Policy</Link>
+            <Link to="/terms" className="hover:text-gray-900">Terms of Service</Link>
             <a href="mailto:umarsofiyaan@gmail.com" className="hover:text-gray-900">Contact</a>
           </div>
           <p className="text-xs text-gray-400">(c) 2026 Smart Mailbox Cleaner</p>

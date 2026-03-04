@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth.jsx';
 
@@ -144,9 +144,9 @@ export default function Login() {
 
           <p className="text-xs text-gray-400 text-center mt-6">
             By continuing, you agree to our{' '}
-            <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>
+            <Link to="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
             {' '}and{' '}
-            <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>.
+            <Link to="/terms" className="underline hover:text-gray-600">Terms of Service</Link>.
           </p>
         </div>
       </div>
