@@ -43,6 +43,16 @@
     .flinks a:hover{color:#0f172a;text-decoration:underline}
     .flinks a.active{font-weight:700;color:#2563eb}
     .copy{font-size:12px;color:#94a3b8}
+      .site-footer{border-top:1px solid #e5e7eb;background:rgba(249,250,251,.7);margin-top:40px}
+    .site-footer-wrap{max-width:960px;margin:0 auto;padding:40px 24px;display:grid;grid-template-columns:1fr;gap:28px}
+    @media(min-width:768px){.site-footer-wrap{grid-template-columns:1.25fr 1fr 1fr;gap:32px}}
+    .site-footer-brand{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-weight:700;color:#111827}
+    .site-footer-brand img{width:32px;height:32px;border-radius:8px}
+    .site-footer h3{font-size:14px;font-weight:700;color:#111827;margin-bottom:10px}
+    .site-footer-links{display:flex;flex-direction:column;gap:8px}
+    .site-footer-links a{font-size:14px;color:#4b5563;text-decoration:none}
+    .site-footer-links a:hover{color:#111827;text-decoration:underline}
+    .site-footer-domain{font-size:14px;color:#4b5563;text-decoration:underline}
   </style>
 </head>
 <body>
@@ -207,20 +217,32 @@
 </div>
 </div>
 
-<footer>
-  <div class="wrap">
-    <div class="footer-inner">
-      <div class="footer-logo">
-        <img src="/icon-72.png" alt=""/>
-        Smart Mailbox Cleaner
+<footer class="site-footer">
+  <div class="site-footer-wrap">
+    <div>
+      <div class="site-footer-brand">
+        <img src="/icon-72.png" alt="Smart Mailbox Cleaner"/>
+        <span>Smart Mailbox Cleaner</span>
       </div>
-      <div class="flinks">
+      <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/home" class="site-footer-domain">smart-mailbox-cleaner.umarsofiyaan.shop/home</a>
+    </div>
+
+    <div>
+      <h3>Pages</h3>
+      <div class="site-footer-links">
         <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/home">Home</a>
-        <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/privacy-policy" class="active">Privacy Policy</a>
+        <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/login">Login</a>
+        <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/pricing">Pricing</a>
+      </div>
+    </div>
+
+    <div>
+      <h3>Legal</h3>
+      <div class="site-footer-links">
+        <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/privacy-policy">Privacy Policy</a>
         <a href="https://smart-mailbox-cleaner.umarsofiyaan.shop/terms-of-service">Terms of Service</a>
         <a href="mailto:umarsofiyaan@gmail.com">Contact</a>
       </div>
-      <p class="copy">(c) 2026 Smart Mailbox Cleaner</p>
     </div>
   </div>
 </footer>
