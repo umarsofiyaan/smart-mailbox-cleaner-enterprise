@@ -54,8 +54,8 @@ export default function Home() {
             <span className="font-bold text-gray-900 text-sm">Smart Mailbox Cleaner</span>
           </div>
           <div className="flex items-center gap-6">
-            <Link to="/privacy" className="text-sm text-gray-500 hover:text-gray-900">Privacy Policy</Link>
-            <Link to="/terms" className="text-sm text-gray-500 hover:text-gray-900">Terms</Link>
+            <Link to="/privacy-policy" className="text-sm text-gray-500 hover:text-gray-900">Privacy Policy</Link>
+            <Link to="/terms-of-service" className="text-sm text-gray-500 hover:text-gray-900">Terms</Link>
             <button
               onClick={handleGetStarted}
               disabled={isConnecting}
@@ -223,22 +223,6 @@ export default function Home() {
         <p className="text-sm text-gray-400 mt-3">5,000 free credits - No credit card</p>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="border-t border-gray-100 px-6 py-8">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img src="/icon-72.png" alt="" className="w-6 h-6 rounded-md" />
-            <span className="text-sm font-semibold text-gray-700">Smart Mailbox Cleaner</span>
-          </div>
-          <div className="flex items-center gap-6 text-sm text-gray-500">
-            {/* IMPORTANT: These links are what Google checks for */}
-            <Link to="/privacy" className="hover:text-gray-900 font-medium">Privacy Policy</Link>
-            <Link to="/terms" className="hover:text-gray-900">Terms of Service</Link>
-            <a href="mailto:umarsofiyaan@gmail.com" className="hover:text-gray-900">Contact</a>
-          </div>
-          <p className="text-xs text-gray-400">(c) 2026 Smart Mailbox Cleaner</p>
-        </div>
-      </footer>
 
     </div>
   );

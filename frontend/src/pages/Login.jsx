@@ -144,9 +144,9 @@ export default function Login() {
 
           <p className="text-xs text-gray-400 text-center mt-6">
             By continuing, you agree to our{' '}
-            <Link to="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
+            <Link to="/privacy-policy" className="underline hover:text-gray-600">Privacy Policy</Link>
             {' '}and{' '}
-            <Link to="/terms" className="underline hover:text-gray-600">Terms of Service</Link>.
+            <Link to="/terms-of-service" className="underline hover:text-gray-600">Terms of Service</Link>.
           </p>
         </div>
       </div>

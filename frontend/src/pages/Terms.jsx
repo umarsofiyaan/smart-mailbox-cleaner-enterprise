@@ -14,9 +14,7 @@ export default function Terms() {
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-3xl mx-auto px-6 py-5 flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <span className="text-sm">📬</span>
-            </div>
+            <img src="/icon-72.png" alt="Smart Mailbox Cleaner" className="w-8 h-8 rounded-lg" />
             <span className="font-bold text-gray-900">{appName}</span>
           </Link>
           <span className="text-gray-300 mx-1">/</span>
@@ -233,13 +231,7 @@ export default function Terms() {
         </div>
       </main>
 
-      <footer className="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between text-xs text-gray-400">
-        <span>(c) 2026 {appName}</span>
-        <div className="flex gap-4">
-          <Link to="/privacy" className="hover:text-gray-600">Privacy Policy</Link>
-          <Link to="/terms" className="hover:text-gray-600">Terms of Service</Link>
-        </div>
-      </footer>
+
     </div>
   );
 }

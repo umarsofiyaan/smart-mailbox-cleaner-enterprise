@@ -1,5 +1,4 @@
-// src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx';
 import Home     from './pages/Home';
 import Login    from './pages/Login';
@@ -8,6 +7,7 @@ import Pricing  from './pages/Pricing';
 import Admin    from './pages/Admin';
 import Privacy  from './pages/Privacy';
 import Terms    from './pages/Terms';
+import SiteFooter from './components/SiteFooter';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -51,23 +51,37 @@ function ExtensionAuth() {
   );
 }
 
+function AppLayout() {
+  const location = useLocation();
+  const hideFooter = location.pathname === '/extension-auth';
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <main className="flex-1">
+        <Routes>
+          <Route path="/"                element={<Home />} />
+          <Route path="/home"            element={<Home />} />
+          <Route path="/login"           element={<Login />} />
+          <Route path="/pricing"         element={<Pricing />} />
+          <Route path="/privacy-policy"  element={<Privacy />} />
+          <Route path="/terms-of-service" element={<Terms />} />
+          <Route path="/privacy"         element={<Navigate to="/privacy-policy" replace />} />
+          <Route path="/terms"           element={<Navigate to="/terms-of-service" replace />} />
+          <Route path="/extension-auth"  element={<ExtensionAuth />} />
+          <Route path="/dashboard"       element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/admin"           element={<AdminRoute><Admin /></AdminRoute>} />
+        </Routes>
+      </main>
+      {!hideFooter && <SiteFooter />}
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          {/* Public - accessible without login */}
-          <Route path="/"               element={<Home />} />      {/* ← public home page, not redirect */}
-          <Route path="/login"          element={<Login />} />
-          <Route path="/pricing"        element={<Pricing />} />
-          <Route path="/privacy"        element={<Privacy />} />
-          <Route path="/terms"          element={<Terms />} />
-          <Route path="/extension-auth" element={<ExtensionAuth />} />
-
-          {/* Protected - require login */}
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin"     element={<AdminRoute><Admin /></AdminRoute>} />
-        </Routes>
+        <AppLayout />
       </AuthProvider>
     </BrowserRouter>
   );
