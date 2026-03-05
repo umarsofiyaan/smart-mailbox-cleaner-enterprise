@@ -7,8 +7,6 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
-  // Required for Google Drive storage quota (shared quota across Gmail/Drive/Photos)
-  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
 /**
