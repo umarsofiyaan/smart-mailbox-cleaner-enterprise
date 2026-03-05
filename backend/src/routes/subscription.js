@@ -1,8 +1,10 @@
 // src/routes/subscription.js
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
+const { applyPurchasedPlan, getQuotaSummary } = require('../services/quotaService');
+const { getUserPricingContext } = require('../services/pricingService');
 const {
   createCheckoutSession,
   createPortalSession,
@@ -12,18 +14,28 @@ const {
 } = require('../services/stripeService');
 const logger = require('../utils/logger');
 
+router.get('/pricing', requireAuth, async (req, res) => {
+  try {
+    const pricing = await getUserPricingContext(req.user.id, req);
+    return res.json(pricing);
+  } catch (err) {
+    logger.error('Failed to fetch regional pricing', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to fetch pricing.' });
+  }
+});
+
 /**
  * POST /subscription/checkout
- * Body: { planId?: string }  — one of the 4 Razorpay plan IDs.
+ * Body: { planType?: 'starter'|'pro'|'power' }
  */
 router.post('/checkout', requireAuth, async (req, res) => {
-  const { planId } = req.body;
+  const planType = String(req.body?.planType || 'pro').toLowerCase();
   try {
     const checkoutData = await createCheckoutSession(
       req.user.id,
       req.user.email,
       req.user.displayName,
-      planId
+      planType
     );
     return res.json(checkoutData);
   } catch (err) {
@@ -33,8 +45,26 @@ router.post('/checkout', requireAuth, async (req, res) => {
 });
 
 /**
- * POST /subscription/verify
+ * POST /subscription/purchase
+ * Body: { plan_type: 'starter'|'pro'|'power' }
+ * NOTE: This endpoint applies the purchased plan immediately.
+ * In production, call this after a verified payment event.
  */
+router.post('/purchase', requireAuth, async (req, res) => {
+  const planType = String(req.body?.plan_type || '').toLowerCase();
+  if (!['starter', 'pro', 'power'].includes(planType)) {
+    return res.status(400).json({ error: 'Invalid plan_type. Must be starter, pro, or power.' });
+  }
+
+  try {
+    const quota = await applyPurchasedPlan(req.user.id, planType);
+    return res.json({ success: true, planType, quota });
+  } catch (err) {
+    logger.error('Plan purchase activation failed', err, { userId: req.user.id, planType });
+    return res.status(500).json({ error: err.message || 'Failed to activate plan.' });
+  }
+});
+
 router.post('/verify', requireAuth, async (req, res) => {
   const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
   try {
@@ -43,16 +73,14 @@ router.post('/verify', requireAuth, async (req, res) => {
       razorpay_subscription_id,
       razorpay_signature,
     });
-    return res.json({ success: true });
+    const quota = await getQuotaSummary(req.user.id);
+    return res.json({ success: true, quota });
   } catch (err) {
     logger.error('Razorpay verification failed', err);
     return res.status(400).json({ error: err.message });
   }
 });
 
-/**
- * POST /subscription/portal
- */
 router.post('/portal', requireAuth, async (req, res) => {
   try {
     const { url } = await createPortalSession(req.user.id);
@@ -63,9 +91,6 @@ router.post('/portal', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * GET /subscription/status
- */
 router.get('/status', requireAuth, async (req, res) => {
   try {
     const status = await getSubscriptionStatus(req.user.id);
@@ -76,9 +101,6 @@ router.get('/status', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * POST /subscription/cancel
- */
 router.post('/cancel', requireAuth, async (req, res) => {
   const { query } = require('../config/database');
   try {
@@ -92,7 +114,7 @@ router.post('/cancel', requireAuth, async (req, res) => {
     const subId = result.rows[0].stripe_subscription_id;
     const Razorpay = require('razorpay');
     const razorpay = new Razorpay({
-      key_id:     process.env.RAZORPAY_KEY_ID,
+      key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
     await razorpay.subscriptions.cancel(subId, { cancel_at_cycle_end: 1 });
@@ -107,9 +129,6 @@ router.post('/cancel', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * POST /subscription/webhook
- */
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
   if (!signature) return res.status(400).json({ error: 'Missing Razorpay signature.' });

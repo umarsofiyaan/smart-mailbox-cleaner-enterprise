@@ -12,7 +12,6 @@ const {
 } = require('./gmailService');
 const { scoreCategory } = require('./confidenceEngine');
 const { query } = require('../config/database');
-const { checkQuota } = require('./quotaService');
 const logger = require('../utils/logger');
 
 /**
@@ -133,13 +132,9 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       storageInfo = { storageUsedBytes: 0, storageQuotaBytes: 15 * 1024 * 1024 * 1024 };
     }
 
-    // Pro: uncapped. Free: strictly capped by remaining quota.
-    const quota = await checkQuota(userId);
-    const isBypassPro = process.env.BYPASS_PRO === 'true';
-    const maxMatches = (isBypassPro || quota.remaining === Infinity)
-      ? Infinity
-      : (quota.allowed && quota.remaining > 0 ? quota.remaining : 0);
-    logger.info(`[SCAN DEBUG] Quota check: allowed=${quota.allowed}, remaining=${quota.remaining}, isBypassPro=${isBypassPro}, maxMatches=${maxMatches === Infinity ? 'Infinity' : maxMatches}, scanDepth=${scanDepth}`, { scanId });
+    // Scans are uncapped so users can fully see value before purchase.
+    const maxMatches = Infinity;
+    logger.info(`[SCAN DEBUG] Uncapped scan enabled; maxMatches=${maxMatches}`, { scanId, scanDepth });
 
     // Step 2: Scan each category
     const categoryResults = [];
@@ -325,12 +320,8 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
 
     logger.info('Running custom scan', { scanId, userId, query: customQuery });
 
-    // Pro: no cap. Free: strictly capped by remaining quota.
-    const quota = await checkQuota(userId);
-    const isBypassPro = process.env.BYPASS_PRO === 'true';
-    const maxMatches = (isBypassPro || quota.remaining === Infinity)
-      ? Infinity
-      : (quota.allowed && quota.remaining > 0 ? quota.remaining : 0);
+    // Custom scans are uncapped so users can fully see value before purchase.
+    const maxMatches = Infinity;
 
     // Collect message IDs matching the custom query
     let messageIds;

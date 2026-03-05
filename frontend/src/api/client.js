@@ -103,10 +103,16 @@ export const cleanupApi = {
 };
 
 export const subscriptionApi = {
-  createCheckout: () => api.post('/subscription/checkout'),
+  getPricing:      () => api.get('/subscription/pricing'),
+  createCheckout:  (payload = {}) => api.post('/subscription/checkout', payload),
+  purchase:        (planType) => api.post('/subscription/purchase', { plan_type: planType }),
   createPortal:   () => api.post('/subscription/portal'),
   getStatus:      () => api.get('/subscription/status'),
   cancel:         () => api.post('/subscription/cancel'),
+};
+
+export const userApi = {
+  getQuota: () => api.get('/user/quota'),
 };
 
 export const automationApi = {

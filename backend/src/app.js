@@ -28,6 +28,7 @@ const cleanupRoutes      = require('./routes/cleanup');
 const subscriptionRoutes = require('./routes/subscription');
 const adminRoutes        = require('./routes/admin');
 const automationRoutes   = require('./routes/automation');
+const userRoutes         = require('./routes/user');
 const { startWorker }    = require('./jobs/worker');
 const logger             = require('./utils/logger');
 
@@ -106,6 +107,7 @@ app.use('/cleanup',      cleanupRoutes);
 app.use('/subscription', subscriptionRoutes);
 app.use('/admin',        adminRoutes);
 app.use('/automation',   automationRoutes);
+app.use('/user',         userRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -157,3 +159,4 @@ process.on('unhandledRejection', (reason) => {
 });
 
 module.exports = app;
+

@@ -5,9 +5,10 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { cleanupLimiter } = require('../middleware/security');
+const { requireDeletionQuota } = require('../middleware/quotaMiddleware');
 const { getOAuthTokens } = require('../services/tokenService');
 const { createCleanupAction, undoCleanup, getCleanupHistory } = require('../services/cleanupService');
-const { checkQuota, getQuotaSummary } = require('../services/quotaService');
+const { getQuotaSummary } = require('../services/quotaService');
 const { enqueueCleanup } = require('../jobs/worker');
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
@@ -26,10 +27,20 @@ router.post(
     body('customQuery').optional().isString().isLength({ min: 1, max: 2000 }),
     body('expectedMessageCount').optional().isInt({ min: 0 }),
   ],
-  async (req, res) => {
+  (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
+    next();
+  },
+  (req, res, next) => {
+    const cleanupMode = req.body?.cleanupMode || 'ids';
+    const idsCount = Array.isArray(req.body?.messageIds) ? req.body.messageIds.length : 0;
+    const expectedCount = Number(req.body?.expectedMessageCount) || 0;
+    req.deletionRequestCount = cleanupMode === 'query' ? Math.max(1, expectedCount) : Math.max(1, idsCount);
+    next();
+  },
+  requireDeletionQuota,
+  async (req, res) => {
     let {
       scanId,
       category,
@@ -58,15 +69,6 @@ router.post(
     }
     if (cleanupMode !== 'query' && messageIds.length === 0) {
       return res.status(400).json({ error: 'messageIds are required when cleanupMode=ids.' });
-    }
-
-    const quotaCheck = await checkQuota(userId);
-    if (!quotaCheck.allowed) {
-      return res.status(403).json({
-        error: quotaCheck.reason,
-        code: 'QUOTA_EXHAUSTED',
-        upgradeUrl: `${process.env.FRONTEND_URL}/pricing`,
-      });
     }
 
     try {
@@ -99,10 +101,8 @@ router.post(
         });
       }
 
-      const declaredExpectedCount = Math.min(Number(expectedMessageCount) || 0, quotaCheck.remaining);
-      const expectedCount = cleanupMode === 'query'
-        ? 0
-        : Math.min(messageIds.length, quotaCheck.remaining);
+      const declaredExpectedCount = Math.max(0, Number(expectedMessageCount) || 0);
+      const expectedCount = cleanupMode === 'query' ? declaredExpectedCount : messageIds.length;
 
       const action = await createCleanupAction(userId, scanId, category, estimatedBytes, expectedCount);
       const jobId = await enqueueCleanup(userId, {

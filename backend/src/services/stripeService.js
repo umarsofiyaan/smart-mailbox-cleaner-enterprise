@@ -5,6 +5,7 @@
 const Razorpay = require('razorpay');
 const crypto   = require('crypto');
 const { query } = require('../config/database');
+const { applyPurchasedPlan } = require('./quotaService');
 const logger   = require('../utils/logger');
 
 const razorpay = new Razorpay({
@@ -54,6 +55,18 @@ const DEFAULT_PLAN_ID = process.env.RAZORPAY_PLAN_ID
   || process.env.RAZORPAY_PLAN_ID_MONTHLY
   || 'plan_monthly';
 
+const PLAN_ID_BY_TYPE = {
+  starter: process.env.RAZORPAY_PLAN_ID_STARTER || DEFAULT_PLAN_ID,
+  pro: process.env.RAZORPAY_PLAN_ID_PRO || process.env.RAZORPAY_PLAN_ID_MONTHLY || DEFAULT_PLAN_ID,
+  power: process.env.RAZORPAY_PLAN_ID_POWER || DEFAULT_PLAN_ID,
+};
+
+function normalizePlanType(input) {
+  const value = String(input || '').toLowerCase();
+  if (value === 'starter' || value === 'pro' || value === 'power') return value;
+  return 'pro';
+}
+
 /**
  * Resolve which plan to use for checkout.
  * If the requested planId is in our registry → use it.
@@ -85,7 +98,8 @@ function calcPeriodEnd(planId) {
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 
 async function createCheckoutSession(userId, email, displayName, requestedPlanId) {
-  const planId   = resolvePlanId(requestedPlanId);
+  const pendingPlanType = normalizePlanType(requestedPlanId);
+  const planId   = PLAN_ID_BY_TYPE[pendingPlanType] || resolvePlanId(requestedPlanId);
   const planMeta = PLANS[planId] || { totalCount: 12, amountPaise: 44900, label: 'Monthly' };
 
   try {
@@ -101,13 +115,14 @@ async function createCheckoutSession(userId, email, displayName, requestedPlanId
     // regardless of whether verify has been called yet (race condition fix).
     await query(
       `INSERT INTO subscription_status
-         (user_id, stripe_customer_id, stripe_subscription_id, plan, status)
-       VALUES ($1, $2, $2, 'free', 'pending')
+         (user_id, stripe_customer_id, stripe_subscription_id, plan, status, pending_plan_type)
+       VALUES ($1, $2, $2, 'free', 'pending', $3)
        ON CONFLICT (user_id) DO UPDATE
          SET stripe_customer_id    = $2,
              stripe_subscription_id = $2,
+             pending_plan_type      = $3,
              updated_at            = NOW()`,
-      [userId, subscription.id]
+      [userId, subscription.id, pendingPlanType]
     );
 
     logger.info('Checkout session created', {
@@ -125,6 +140,7 @@ async function createCheckoutSession(userId, email, displayName, requestedPlanId
       name:           'Smart Mailbox Cleaner Pro',
       description:    `${planMeta.label} Plan`,
       email,
+      planType:       pendingPlanType,
     };
   } catch (err) {
     logger.error('Failed to create checkout session', err, { userId, email, planId });
@@ -171,21 +187,33 @@ async function verifyAndActivatePayment(userId, {
       periodEnd = calcPeriodEnd(DEFAULT_PLAN_ID);
     }
 
+    const pendingRes = await query(
+      `SELECT pending_plan_type
+       FROM subscription_status
+       WHERE user_id = $1`,
+      [userId]
+    );
+    const planType = normalizePlanType(pendingRes.rows[0]?.pending_plan_type || detectedPlanId);
+
+    await applyPurchasedPlan(userId, planType);
+
     await query(
       `UPDATE subscription_status
-       SET plan                   = 'pro',
+       SET plan                   = $4,
            status                 = 'active',
            stripe_subscription_id  = $1,
            current_period_end     = $2,
+           pending_plan_type      = NULL,
            updated_at             = NOW()
        WHERE user_id = $3`,
-      [razorpay_subscription_id, periodEnd, userId]
+      [razorpay_subscription_id, periodEnd, userId, planType]
     );
 
     logger.info('Razorpay subscription activated via verify', {
       userId,
       razorpay_subscription_id,
       detectedPlanId,
+      planType,
       periodEnd,
     });
 
@@ -222,23 +250,26 @@ async function handleWebhook(rawBody, signature) {
 
         const result = await query(
           `UPDATE subscription_status
-           SET plan                   = 'pro',
+           SET plan                   = COALESCE(pending_plan_type, 'pro'),
                status                 = 'active',
                stripe_subscription_id  = $1,
                current_period_end     = $2,
+               pending_plan_type      = NULL,
                updated_at             = NOW()
            WHERE stripe_subscription_id = $1
               OR stripe_customer_id     = $1
-           RETURNING user_id`,
+           RETURNING user_id, plan`,
           [sub.id, periodEnd]
         );
 
         if (result.rowCount === 0) {
           logger.warn('Webhook: no subscription record found to activate', { subId: sub.id });
         } else {
+          await applyPurchasedPlan(result.rows[0].user_id, normalizePlanType(result.rows[0].plan));
           logger.info('Webhook: subscription activated/renewed', {
             subId: sub.id,
             userId: result.rows[0].user_id,
+            planType: result.rows[0].plan,
             planId: sub.plan_id,
             periodEnd,
           });
@@ -363,12 +394,24 @@ async function createPortalSession(userId) {
 
 async function getSubscriptionStatus(userId) {
   try {
+    const usageRes = await query(
+      `SELECT plan_type, plan_expiry
+       FROM users
+       WHERE id = $1`,
+      [userId]
+    );
+    const usage = usageRes.rows[0] || {};
+    const isPowerActive = usage.plan_type === 'power' && usage.plan_expiry && new Date(usage.plan_expiry) > new Date();
+
     const result = await query(
       `SELECT plan, status, current_period_end FROM subscription_status WHERE user_id = $1`,
       [userId]
     );
 
-    if (!result.rows[0]) return { plan: 'free', status: 'active', isPro: false };
+    if (!result.rows[0]) {
+      const paid = isPowerActive || usage.plan_type === 'starter' || usage.plan_type === 'pro';
+      return { plan: usage.plan_type || 'free', status: 'active', isPro: paid, planExpiry: usage.plan_expiry || null };
+    }
 
     const row = result.rows[0];
     const inGracePeriod =
@@ -376,12 +419,13 @@ async function getSubscriptionStatus(userId) {
       row.current_period_end &&
       new Date(row.current_period_end) > new Date();
 
-    const isPro = (row.plan === 'pro' && row.status === 'active') || inGracePeriod;
+    const isPro = isPowerActive || usage.plan_type === 'starter' || usage.plan_type === 'pro' || ((row.plan === 'pro' && row.status === 'active') || inGracePeriod);
 
     return {
-      plan:             row.plan,
+      plan:             usage.plan_type || row.plan,
       status:           row.status,
       currentPeriodEnd: row.current_period_end,
+      planExpiry:       usage.plan_expiry || null,
       isPro,
       inGracePeriod,
     };

@@ -284,6 +284,7 @@ router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
       `SELECT u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.is_admin,
+              u.delete_credits, u.plan_type, u.plan_expiry, u.emails_deleted_total,
               s.plan, s.status as subscription_status, s.current_period_end
        FROM users u
        LEFT JOIN subscription_status s ON s.user_id = u.id
@@ -296,6 +297,8 @@ router.get('/me', requireAuth, async (req, res) => {
     }
 
     const user = result.rows[0];
+    const isPowerActive = user.plan_type === 'power' && user.plan_expiry && new Date(user.plan_expiry) > new Date();
+    const isPaidPlan = isPowerActive || ['starter', 'pro'].includes(user.plan_type);
     return res.json({
       id:          user.id,
       email:       user.email,
@@ -304,10 +307,17 @@ router.get('/me', requireAuth, async (req, res) => {
       joinedAt:    user.created_at,
       isAdmin:     user.is_admin || false,
       subscription: {
-        plan:            user.plan || 'free',
+        plan:            user.plan_type || user.plan || 'free',
         status:          user.subscription_status || 'active',
-        isPro:           user.plan === 'pro' && user.subscription_status === 'active',
+        isPro:           !!isPaidPlan,
         currentPeriodEnd: user.current_period_end,
+      },
+      quota: {
+        deleteCredits: Number(user.delete_credits || 0),
+        planType: user.plan_type || 'free',
+        planExpiry: user.plan_expiry || null,
+        emailsDeletedTotal: Number(user.emails_deleted_total || 0),
+        isPowerActive: !!isPowerActive,
       },
     });
   } catch (err) {

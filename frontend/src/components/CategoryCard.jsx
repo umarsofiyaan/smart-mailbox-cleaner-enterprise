@@ -268,8 +268,22 @@ export default function CategoryCard({
           // Free user, quota exhausted
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center space-y-2">
             <p className="text-xs text-amber-700 font-semibold">Free quota used up</p>
-            <p className="text-xs text-amber-600">You have reached the free limit of 5,000 emails. Go Pro for unlimited cleanup.
+            <p className="text-xs text-amber-600">You have reached your free deletion credits. Unlock a plan to continue cleanup.
 			</p>
+            <button
+              onClick={() => onCleanup({
+                category: category.key,
+                messageIds: isQueryCleanup ? [] : allMessageIds,
+                estimatedBytes: category.totalBytes,
+                label: category.label,
+                messageCount: category.messageCount,
+                cleanupMode: isQueryCleanup ? 'query' : 'ids',
+                customQuery: isQueryCleanup ? category.cleanup.query : null,
+              })}
+              className="w-full py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
+            >
+              Unlock cleanup
+            </button>
           </div>
         ) : (
           // Not pro, no quota info yet - show Pro required

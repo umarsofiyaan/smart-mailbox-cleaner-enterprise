@@ -4,18 +4,20 @@
 
 async function requirePro(req, res, next) {
   if (process.env.BYPASS_PRO === 'true') {
-    req.subscription = { plan: 'pro', status: 'active' };
+    req.subscription = { plan: 'pro', status: 'active', plan_type: 'pro' };
     return next();
   }
 
-  // Original check (restore this for production)
   const { query } = require('../config/database');
   const result = await query(
-    `SELECT plan, status, current_period_end FROM subscription_status WHERE user_id = $1`,
+    `SELECT plan_type, plan_expiry FROM users WHERE id = $1`,
     [req.user.id]
   );
-  const sub = result.rows[0];
-  if (!sub || sub.plan !== 'pro' || sub.status !== 'active') {
+  const sub = result.rows[0] || {};
+  const isPowerActive = sub.plan_type === 'power' && sub.plan_expiry && new Date(sub.plan_expiry) > new Date();
+  const isPaidPlan = isPowerActive || sub.plan_type === 'starter' || sub.plan_type === 'pro';
+
+  if (!isPaidPlan) {
     return res.status(403).json({
       error: 'Pro subscription required.',
       code: 'PRO_REQUIRED',

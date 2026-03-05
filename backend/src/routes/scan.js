@@ -33,11 +33,12 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
     // DEV MODE: bypass with BYPASS_PRO env var
     if (process.env.BYPASS_PRO !== 'true') {
       const subResult = await query(
-        "SELECT plan, status FROM subscription_status WHERE user_id = $1",
+        "SELECT plan_type, plan_expiry FROM users WHERE id = $1",
         [userId]
       );
-      const sub = subResult.rows[0];
-      const isPro = sub?.plan === 'pro' && sub?.status === 'active';
+      const sub = subResult.rows[0] || {};
+      const isPowerActive = sub.plan_type === 'power' && sub.plan_expiry && new Date(sub.plan_expiry) > new Date();
+      const isPro = isPowerActive || sub.plan_type === 'starter' || sub.plan_type === 'pro';
 
       if (!isPro) {
         return res.status(403).json({

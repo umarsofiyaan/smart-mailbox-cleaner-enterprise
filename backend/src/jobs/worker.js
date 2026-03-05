@@ -128,7 +128,10 @@ async function executeCleanupJob(job) {
   }
 
   try {
-    const quotaCheck = await checkQuota(job.user_id);
+    const requestedCount = cleanupMode === 'query'
+      ? Math.max(1, Number(job.payload?.expectedMessageCount) || 1)
+      : Math.max(1, Array.isArray(messageIds) ? messageIds.length : 1);
+    const quotaCheck = await checkQuota(job.user_id, requestedCount);
     if (!quotaCheck.allowed) {
       await query(
         "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
@@ -146,11 +149,11 @@ async function executeCleanupJob(job) {
     if (cleanupMode === 'query') {
       await patchJobPayload(job.id, { progress: { stage: 'resolving_ids' } });
       effectiveIds = await collectMessageIdsByQuery(gmail, customQuery, {
-        maxMessages: quotaCheck.remaining,
+        maxMessages: Number.isFinite(quotaCheck.remaining) ? quotaCheck.remaining : Infinity,
       });
     } else {
       effectiveIds = Array.isArray(messageIds)
-        ? messageIds.slice(0, quotaCheck.remaining)
+        ? (Number.isFinite(quotaCheck.remaining) ? messageIds.slice(0, quotaCheck.remaining) : messageIds)
         : [];
     }
 
@@ -160,6 +163,15 @@ async function executeCleanupJob(job) {
     await patchJobPayload(job.id, {
       progress: { stage: 'moving_to_trash', matchedCount: effectiveIds.length },
     });
+
+    const finalQuotaCheck = await checkQuota(job.user_id, Math.max(1, effectiveIds.length));
+    if (!finalQuotaCheck.allowed) {
+      await query(
+        "UPDATE cleanup_actions SET status = 'failed', error_message = $1 WHERE id = $2",
+        ['PAYWALL_REQUIRED', actionId]
+      );
+      throw new Error('PAYWALL_REQUIRED');
+    }
 
     if (!effectiveIds.length) {
       await query(
@@ -227,10 +239,10 @@ async function executeCleanupJob(job) {
 
         const { email, display_name } = userResult.rows[0];
         const updatedQuota = await getQuotaSummary(job.user_id);
-        const isPro = updatedQuota.isPro;
-        const lifetimeUsed = updatedQuota.lifetime?.used ?? 0;
-        const lifetimeAllowance = updatedQuota.lifetime?.allowance ?? 5000;
-        const quotaRemaining = updatedQuota.lifetime?.remaining ?? 0;
+        const isPaidPlan = updatedQuota.planType !== 'free' || updatedQuota.isPowerActive;
+        const quotaRemaining = updatedQuota.deleteCredits ?? 0;
+        const lifetimeAllowance = 1000;
+        const lifetimeUsed = Math.max(0, lifetimeAllowance - Math.min(lifetimeAllowance, quotaRemaining));
 
         sendCleanupReceipt(email, display_name, {
           category,
@@ -238,11 +250,13 @@ async function executeCleanupJob(job) {
           bytesFreed: result.bytesFreed,
           undoExpiresAt: result.undoExpiresAt,
           quotaRemaining,
-          isPro,
+          isPro: isPaidPlan,
         });
 
-        if (!isPro) {
-          sendQuotaWarningIfNeeded(job.user_id, email, display_name, lifetimeUsed, lifetimeAllowance);
+        if (!isPaidPlan) {
+          if (quotaRemaining <= 200) {
+            sendQuotaWarningIfNeeded(job.user_id, email, display_name, lifetimeUsed, lifetimeAllowance);
+          }
           if (quotaRemaining === 0) {
             sendQuotaExhaustedIfNeeded(job.user_id, email, display_name);
           }

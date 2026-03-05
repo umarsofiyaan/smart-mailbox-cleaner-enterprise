@@ -13,14 +13,20 @@ import CleanupHistory from '../components/CleanupHistory';
 import OnboardingGuide from '../components/OnboardingGuide';
 import QuotaBanner from '../components/QuotaBanner';
 import SubscriptionModal from '../components/SubscriptionModal';
+import PaywallModal from '../components/PaywallModal';
 import CustomScanBuilder, { buildQueryPreview } from '../components/CustomScanBuilder';
 import PlaybooksPanel from '../components/PlaybooksPanel';
-import api, { subscriptionApi, cleanupApi, scanApi, automationApi } from '../api/client';
+import api, { subscriptionApi, cleanupApi, scanApi, automationApi, userApi } from '../api/client';
 
 function formatGB(bytes) {
   if (!bytes) return '0 MB';
   const gb = bytes / (1024 ** 3);
   if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${(bytes / (1024 ** 2)).toFixed(0)} MB`;
+}
+
+function formatMB(bytes) {
+  if (!bytes) return '0 MB';
   return `${(bytes / (1024 ** 2)).toFixed(0)} MB`;
 }
 
@@ -162,9 +168,14 @@ export default function Dashboard() {
   const [taskNotice,            setTaskNotice]            = useState(null);
   const [uiNotice,              setUiNotice]              = useState(null);
   const [pendingCleanupCategories, setPendingCleanupCategories] = useState(new Set());
+  const [paywallOpen,           setPaywallOpen]           = useState(false);
+  const [paywallPayload,        setPaywallPayload]        = useState(null);
+  const [pricing,               setPricing]               = useState(null);
+  const [purchaseLoadingPlan,   setPurchaseLoadingPlan]   = useState('');
+  const [simulatedProgress,     setSimulatedProgress]     = useState(null);
   const profileMenuRef = useRef(null);
 
-  const isPro       = user?.subscription?.isPro;
+  const isPro       = Boolean(user?.subscription?.isPro || quota?.plan_type === 'starter' || quota?.plan_type === 'pro' || quota?.is_power_active);
   const isRunning   = status === 'running' || status === 'starting';
   const estimateCleanupMinutes = (count = 0) => {
     const n = Number(count) || 0;
@@ -198,7 +209,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
     loadLatestScan();
-    if (!isPro) loadQuota();
+    loadQuota();
+    loadPricing();
     if (searchParams.get('upgrade') === 'success')       setShowUpgradeBanner(true);
     if (searchParams.get('manage') === 'subscription') {
       setShowSubscriptionModal(true);
@@ -208,16 +220,25 @@ export default function Dashboard() {
 
   async function loadQuota() {
     try {
-      const res  = await cleanupApi.getQuota();
-      const data = res.data?.quota || res.data;
+      const res = await userApi.getQuota();
+      const data = res.data || null;
       setQuota(data);
+      return data;
     } catch { /* silent */ }
+    return null;
   }
 
-  const quotaLifetimeRemaining = quota?.lifetime?.remaining ?? 0;
-  const quotaDailyRemaining    = quota?.daily?.remaining    ?? 0;
-  const quotaRemaining  = quotaLifetimeRemaining > 0 ? quotaLifetimeRemaining : quotaDailyRemaining;
-  const isFreeWithQuota = !isPro && quotaRemaining > 0;
+  async function loadPricing() {
+    try {
+      const res = await subscriptionApi.getPricing();
+      setPricing(res.data || null);
+    } catch {
+      setPricing(null);
+    }
+  }
+
+  const quotaRemaining  = Number(quota?.delete_credits ?? 0);
+  const isFreeWithQuota = !isPro;
 
   // ── Quick scan ──────────────────────────────────────────────────────────────
 
@@ -350,29 +371,25 @@ export default function Dashboard() {
       });
       return;
     }
-    if (!isPro && quotaRemaining <= 0) {
-      document.getElementById('quota-banner')?.scrollIntoView({ behavior: 'smooth' });
-      return;
-    }
     setPendingCleanup(categoryData);
   }
 
-  async function handleConfirmCleanup() {
-    if (!pendingCleanup || !scan) return;
+  async function executeQueuedCleanup(cleanupPayload) {
+    if (!cleanupPayload || !scan) return;
     try {
       const result = await executeCleanup({
         scanId:         scan.id,
-        category:       pendingCleanup.category,
-        messageIds:     pendingCleanup.messageIds,
-        estimatedBytes: pendingCleanup.estimatedBytes,
-        cleanupMode:    pendingCleanup.cleanupMode || 'ids',
-        customQuery:    pendingCleanup.customQuery || undefined,
-        expectedMessageCount: pendingCleanup.messageCount || 0,
+        category:       cleanupPayload.category,
+        messageIds:     cleanupPayload.messageIds,
+        estimatedBytes: cleanupPayload.estimatedBytes,
+        cleanupMode:    cleanupPayload.cleanupMode || 'ids',
+        customQuery:    cleanupPayload.customQuery || undefined,
+        expectedMessageCount: cleanupPayload.messageCount || 0,
       });
 
       if (result?.queued) {
-        const eta = estimateCleanupMinutes(pendingCleanup.messageCount);
-        const queuedCount = pendingCleanup.messageCount?.toLocaleString?.() || pendingCleanup.messageCount || 0;
+        const eta = estimateCleanupMinutes(cleanupPayload.messageCount);
+        const queuedCount = cleanupPayload.messageCount?.toLocaleString?.() || cleanupPayload.messageCount || 0;
         setUiNotice({
           type: 'info',
           message:
@@ -380,7 +397,7 @@ export default function Dashboard() {
             `Estimated time ~${eta} minute${eta > 1 ? 's' : ''}. ` +
             `You can leave this page and check Cleanup History later.`,
         });
-        markCleanupCategoryPending(pendingCleanup.category);
+        markCleanupCategoryPending(cleanupPayload.category);
         setPendingCleanup(null);
         setHistoryKey(k => k + 1);
         setTimeout(() => scrollToSection('cleanup-history'), 150);
@@ -392,11 +409,12 @@ export default function Dashboard() {
       setPendingCleanup(null);
       setUndoAction(result);
       setHistoryKey(k => k + 1);
-      if (!isPro) { loadQuota(); setQuotaRefreshKey(k => k + 1); }
+      await loadQuota();
+      setQuotaRefreshKey(k => k + 1);
     } catch (err) {
       const msg = err?.message || 'Cleanup failed.';
       if (isConflictMessage(msg)) {
-        markCleanupCategoryPending(pendingCleanup?.category);
+        markCleanupCategoryPending(cleanupPayload?.category);
         setTaskNotice({
           type: 'cleanup',
           message: msg,
@@ -414,6 +432,61 @@ export default function Dashboard() {
       }
       setPendingCleanup(null);
       setUiNotice({ type: 'error', message: msg });
+    }
+  }
+
+  async function handleConfirmCleanup() {
+    if (!pendingCleanup || !scan) return;
+
+    const requestedCount = Number(pendingCleanup.messageCount || pendingCleanup.messageIds?.length || 0);
+    const storageMB = (requestedCount * 75) / 1024;
+    const beforeBytes = Number(scan.storage?.usedBytes || 0);
+    const afterBytes = Math.max(0, beforeBytes - (storageMB * 1024 * 1024));
+
+    setSimulatedProgress({ text: 'Preparing cleanup...', percent: 0 });
+    setPendingCleanup(null);
+
+    await new Promise((resolve) => {
+      setTimeout(() => setSimulatedProgress({ text: 'Preparing cleanup...', percent: 38 }), 260);
+      setTimeout(() => setSimulatedProgress({ text: 'Preparing cleanup...', percent: 78 }), 720);
+      setTimeout(resolve, 1050);
+    });
+
+    const latestQuota = await loadQuota();
+    const latestCredits = Number((latestQuota?.delete_credits ?? quota?.delete_credits ?? 0));
+    const powerActive = !!(latestQuota?.is_power_active ?? quota?.is_power_active);
+
+    if (powerActive || latestCredits >= requestedCount) {
+      setSimulatedProgress(null);
+      await executeQueuedCleanup(pendingCleanup);
+      return;
+    }
+
+    setPaywallPayload({
+      cleanup: pendingCleanup,
+      requestedCount,
+      preview: {
+        before: formatGB(beforeBytes),
+        after: formatGB(afterBytes),
+        timeSaved: `${Math.max(1, Math.round(requestedCount / 9000 * 60 / 20))} hours`,
+      },
+    });
+    setSimulatedProgress(null);
+    setPaywallOpen(true);
+  }
+
+  async function handleUnlockCleanup(planType) {
+    if (!paywallPayload?.cleanup) return;
+    setPurchaseLoadingPlan(planType);
+    try {
+      await subscriptionApi.purchase(planType);
+      await loadQuota();
+      setPaywallOpen(false);
+      await executeQueuedCleanup(paywallPayload.cleanup);
+    } catch (err) {
+      setUiNotice({ type: 'error', message: err?.response?.data?.error || err.message || 'Purchase failed.' });
+    } finally {
+      setPurchaseLoadingPlan('');
     }
   }
 
@@ -448,6 +521,25 @@ export default function Dashboard() {
 
   const categories      = scan?.categories?.filter(c => c.messageCount > 0) || [];
   const totalFreeableGB = scan?.estimatedFreeableGB || 0;
+  const emailsFound = Number(scan?.progress?.messagesScanned || 0);
+  const promotionsCount = Number(categories.find(c => c.key?.includes('promotions'))?.messageCount || 0);
+  const socialCount = Number(categories.find(c => c.key?.includes('social'))?.messageCount || 0);
+  const newslettersCount = Number(categories.find(c => c.key?.includes('old_emails') || c.key?.includes('newsletter'))?.messageCount || 0);
+  const storageSavingsMB = (emailsFound * 75) / 1024;
+
+  const senderCounter = {};
+  for (const cat of categories) {
+    for (const msg of (cat.messages || [])) {
+      const from = String(msg.from || '').toLowerCase();
+      const token = from.includes('<') ? from.split('<')[1]?.split('>')[0] : from;
+      const sender = (token || from || 'unknown').replace(/\"/g, '').trim();
+      if (!sender) continue;
+      senderCounter[sender] = (senderCounter[sender] || 0) + 1;
+    }
+  }
+  const topSenders = Object.entries(senderCounter)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
 
   // Combined error: hook error OR local custom scan error
   const displayError = error || (customScanError && !customScanError.startsWith('⏳') && !customScanError.startsWith('🔍') ? customScanError : '');
@@ -553,6 +645,26 @@ export default function Dashboard() {
             onCustomScan={() => setShowCustomScan(true)}
           />
         </div>
+
+        {quota && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white border border-gray-100 rounded-xl p-4">
+              <p className="text-xs text-gray-500">Emails deleted total</p>
+              <p className="text-2xl font-bold text-gray-900">{Number(quota.emails_deleted_total || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-white border border-gray-100 rounded-xl p-4">
+              <p className="text-xs text-gray-500">Storage recovered</p>
+              <p className="text-2xl font-bold text-gray-900">{formatMB(Number(quota.storage_recovered_bytes || 0))}</p>
+            </div>
+            <div className="bg-white border border-gray-100 rounded-xl p-4">
+              <p className="text-xs text-gray-500">Remaining delete credits</p>
+              <p className="text-2xl font-bold text-gray-900">{Number(quota.delete_credits || 0).toLocaleString()}</p>
+              {quota.is_power_active && (
+                <p className="text-xs text-emerald-600 mt-1">Unlimited cleanup active until {new Date(quota.plan_expiry).toLocaleDateString()}</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Error / Info banners ─────────────────────────────────────────── */}
 
@@ -671,9 +783,36 @@ export default function Dashboard() {
           <QuotaBanner isPro={isPro} refreshKey={quotaRefreshKey} />
         </div>
 
+        {simulatedProgress && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+            <p className="text-sm font-semibold text-gray-900 mb-3">{simulatedProgress.text}</p>
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 transition-all duration-500"
+                style={{ width: `${simulatedProgress.percent}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">{simulatedProgress.percent}%</p>
+          </div>
+        )}
+
         {/* ── Scan results ─────────────────────────────────────────────────── */}
         {scan && status === 'complete' && (
           <>
+            <div className="bg-white border border-gray-100 rounded-2xl p-6 mb-6 shadow-sm">
+              <p className="text-xs uppercase tracking-widest font-semibold text-blue-700">Inbox Analysis Complete</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div><p className="text-xs text-gray-500">Emails Found</p><p className="text-xl font-bold text-gray-900">{emailsFound.toLocaleString()}</p></div>
+                <div><p className="text-xs text-gray-500">Promotions</p><p className="text-xl font-bold text-gray-900">{promotionsCount.toLocaleString()}</p></div>
+                <div><p className="text-xs text-gray-500">Social</p><p className="text-xl font-bold text-gray-900">{socialCount.toLocaleString()}</p></div>
+                <div><p className="text-xs text-gray-500">Newsletters</p><p className="text-xl font-bold text-gray-900">{newslettersCount.toLocaleString()}</p></div>
+              </div>
+              <p className="text-sm text-gray-600 mt-4">
+                You could free approximately <strong>{storageSavingsMB.toFixed(0)} MB</strong> of Gmail storage.
+                This may save you money on Google storage upgrades.
+              </p>
+            </div>
+
             {/* Summary card */}
             {totalFreeableGB > 0 && (
               <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-2xl p-6 mb-6 text-white shadow-lg">
@@ -693,6 +832,12 @@ export default function Dashboard() {
                     Query: {scan.customQuery}
                   </p>
                 )}
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-brand-100">
+                  <p>Secure Google OAuth login</p>
+                  <p>We never read email content</p>
+                  <p>You can revoke access anytime</p>
+                  <p>Your data is never stored or sold</p>
+                </div>
                 {!isPro && quotaRemaining === 0 && quota && (
                   <button
                     onClick={() => navigate('/pricing')}
@@ -754,6 +899,20 @@ export default function Dashboard() {
                     Open Playbooks
                   </button>
                 </div>
+
+                {topSenders.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <p className="text-sm font-bold text-gray-900 mb-3">Top inbox senders</p>
+                    <div className="space-y-2">
+                      {topSenders.map(([sender, count]) => (
+                        <div key={sender} className="flex justify-between text-sm">
+                          <span className="text-gray-600 truncate pr-3">{sender}</span>
+                          <span className="font-semibold text-gray-900">{count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right: categories */}
@@ -883,6 +1042,16 @@ export default function Dashboard() {
         onStart={handleCustomScanStart}
         onCreatePlaybook={handleCreatePlaybookFromCustom}
         isScanning={isRunning}
+      />
+
+      <PaywallModal
+        isOpen={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        onUnlock={handleUnlockCleanup}
+        pricing={pricing}
+        requestedCount={paywallPayload?.requestedCount || 0}
+        preview={paywallPayload?.preview || null}
+        loadingPlan={purchaseLoadingPlan}
       />
 
       {pendingCleanupCategories.size > 0 && (

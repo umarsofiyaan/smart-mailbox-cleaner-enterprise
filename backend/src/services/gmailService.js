@@ -235,7 +235,7 @@ async function batchGetMessageMetadata(gmail, messageIds) {
  * @param {string[]} messageIds
  */
 async function batchTrashMessages(gmail, messageIds, onProgress = null) {
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 500;
   const results = { success: [], failed: [] };
   const total = messageIds.length;
 
@@ -256,7 +256,30 @@ async function batchTrashMessages(gmail, messageIds, onProgress = null) {
       results.success.push(...batch);
     } catch (err) {
       logger.error('batchModify failed for batch', err, { batchSize: batch.length });
-      results.failed.push(...batch);
+      // Retry failed large batches in smaller chunks for transient partial failures.
+      const retryChunks = [];
+      for (let j = 0; j < batch.length; j += 50) {
+        retryChunks.push(batch.slice(j, j + 50));
+      }
+
+      for (const retryChunk of retryChunks) {
+        try {
+          await withBackoff(() =>
+            gmail.users.messages.batchModify({
+              userId: 'me',
+              requestBody: {
+                ids: retryChunk,
+                addLabelIds: ['TRASH'],
+                removeLabelIds: ['INBOX', 'UNREAD'],
+              },
+            })
+          );
+          results.success.push(...retryChunk);
+        } catch (retryErr) {
+          logger.error('batchModify retry failed', retryErr, { batchSize: retryChunk.length });
+          results.failed.push(...retryChunk);
+        }
+      }
     }
 
     if (i + BATCH_SIZE < messageIds.length) {
