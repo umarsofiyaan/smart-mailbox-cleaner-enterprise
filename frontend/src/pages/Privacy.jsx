@@ -4,7 +4,7 @@
 import { Link } from 'react-router-dom';
 
 export default function Privacy() {
-  const lastUpdated = 'February 22, 2026';
+  const lastUpdated = 'March 6, 2026';
   const appName = 'Smart Mailbox Cleaner';
   const domain = 'smart-mailbox-cleaner.umarsofiyaan.shop';
   const contactEmail = 'support@umarsofiyaan.shop';
@@ -99,7 +99,7 @@ export default function Privacy() {
               <li>Execute cleanup actions (move emails to Trash) at your request</li>
               <li>Enable undo functionality within 30 days of a cleanup</li>
               <li>Send you transactional emails (welcome, cleanup receipts, quota alerts)</li>
-              <li>Process subscription payments (Pro plan)</li>
+              <li>Process payments for paid plans</li>
               <li>Detect and prevent fraudulent or abusive use of the Service</li>
               <li>Improve the reliability and performance of the Service</li>
               <li>Respond to your support requests</li>
@@ -177,7 +177,7 @@ export default function Privacy() {
 
             <H3>Razorpay (Payment Processing)</H3>
             <P>
-              If you subscribe to the Pro plan, payments are processed by Razorpay. We do not store
+              If you purchase a paid plan, payments are processed by Razorpay. We do not store
               your payment card details.{' '}
               <a href="https://razorpay.com/privacy/" target="_blank" rel="noopener noreferrer" className="text-brand-600 underline">Razorpay Privacy Policy</a>
             </P>
@@ -204,7 +204,7 @@ export default function Privacy() {
               <li><strong>Scan results</strong> (categories, counts, storage stats): Retained for 90 days after a scan completes, then automatically deleted.</li>
               <li><strong>Cleanup action records</strong>: Retained for 30 days past the undo window (60 days total). Gmail message IDs are deleted after 30 days; the summary record (count, category, bytes freed) is kept for your history.</li>
               <li><strong>Account information</strong>: Retained until you delete your account.</li>
-              <li><strong>Payment records</strong>: Retained for 7 years as required by Indian tax law (for Pro subscribers).</li>
+              <li><strong>Payment records</strong>: Retained for 7 years as required by Indian tax law (for paid users).</li>
             </ul>
           </Section>
 
