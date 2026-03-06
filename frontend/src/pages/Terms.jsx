@@ -3,10 +3,10 @@
 import { Link } from 'react-router-dom';
 
 export default function Terms() {
-  const lastUpdated = 'February 22, 2026';
+  const lastUpdated = 'March 6, 2026';
   const appName = 'Smart Mailbox Cleaner';
   const domain = 'smart-mailbox-cleaner.umarsofiyaan.shop';
-  const contactEmail = 'umarsofiyaan@gmail.com';
+  const contactEmail = 'support@umarsofiyaan.shop';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -33,7 +33,7 @@ export default function Terms() {
               Service ("Terms"). If you do not agree to these Terms, do not use the Service.
             </P>
             <P>
-              These Terms apply to all users of the Service, including free and paid (Pro) subscribers.
+              These Terms apply to all users of the Service, including free and paid plan subscribers.
             </P>
           </Section>
 
@@ -106,7 +106,7 @@ export default function Terms() {
 
           <Section title="6. Free Tier and Quota">
             <P>
-              Free-tier users receive a lifetime allowance of <strong>5,000 cleanup credits</strong>.
+              Free-tier users receive a one-time allowance of <strong>1,000 cleanup credits</strong>.
               Each email moved to Trash consumes one credit. There are no recurring daily top-ups on the free tier.
             </P>
             <P>
@@ -114,33 +114,18 @@ export default function Terms() {
             </P>
           </Section>
 
-          <Section title="7. Pro Subscription">
-            <H3>7.1 Billing</H3>
+          <Section title="7. Paid Plans and Billing">
+            <H3>7.1 Plans</H3>
             <P>
-              Pro subscriptions are billed monthly at the price displayed on the pricing page.
-              Payments are processed by Razorpay. By subscribing, you authorise recurring monthly
-              charges to your payment method.
+              Paid plans are listed on the pricing page and may include Starter, Pro, and Power plans.
+              Starter and Pro plans add cleanup credits. Power plan enables unlimited cleanup for a
+              limited duration.
             </P>
 
-            <H3>7.2 Cancellation</H3>
+            <H3>7.2 Billing</H3>
             <P>
-              You may cancel your Pro subscription at any time from the dashboard ("Manage subscription").
-              Upon cancellation, your Pro access continues until the end of the current billing period.
-              No refunds are provided for partial billing periods.
-            </P>
-
-            <H3>7.3 Refunds</H3>
-            <P>
-              We offer a full refund within <strong>7 days</strong> of your first Pro subscription
-              payment if you are not satisfied, provided you have not cleaned more than 5,000 emails
-              during that period. To request a refund, email us at{' '}
-              <a href={`mailto:${contactEmail}`} className="text-brand-600 underline">{contactEmail}</a>.
-            </P>
-
-            <H3>7.4 Price Changes</H3>
-            <P>
-              We may change subscription prices with at least 30 days' notice sent to your registered
-              email address. Continued use after a price change constitutes acceptance.
+              Payments are processed by Razorpay. Pricing and plan details shown at checkout and on the
+              pricing page are the authoritative source at the time of purchase.
             </P>
           </Section>
 
@@ -190,7 +175,7 @@ export default function Terms() {
             </P>
             <P>
               Our total liability to you for any claims arising from your use of the Service shall
-              not exceed the amount you paid us in the 12 months preceding the claim, or ₹1,000,
+              not exceed the amount you paid us in the 12 months preceding the claim, or INR 1,000,
               whichever is greater.
             </P>
           </Section>
@@ -259,3 +244,4 @@ function H3({ children }) {
 function P({ children }) {
   return <p className="text-gray-600 text-sm leading-relaxed mb-3">{children}</p>;
 }
+
