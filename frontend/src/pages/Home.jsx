@@ -268,7 +268,7 @@ export default function Home() {
         >
           Start cleaning for free -&gt;
         </button>
-        <p className="text-sm text-gray-400 mt-3">5,000 free credits - No credit card</p>
+        <p className="text-sm text-gray-400 mt-3">1,000 one-time free credits - No credit card</p>
       </section>
 
 
