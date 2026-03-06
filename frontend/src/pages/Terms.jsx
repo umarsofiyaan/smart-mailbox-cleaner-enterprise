@@ -67,6 +67,11 @@ export default function Terms() {
               The Service requires you to authenticate with a Google account and grant certain
               Gmail API permissions. You are responsible for:
             </P>
+            <P>
+              We also request <strong>drive.metadata.readonly</strong> only to read storage quota
+              metadata (total and used bytes) so we can display storage usage and cleanup impact.
+              We do not access Drive file content.
+            </P>
             <ul className="list-disc pl-6 space-y-1 text-gray-600 text-sm mb-4">
               <li>Maintaining the security of your Google account</li>
               <li>All activity that occurs under your account</li>

@@ -106,7 +106,7 @@
     <p>This metadata is processed in memory during a scan and never stored permanently on our servers.</p>
 
     <h3>2.3 Storage Usage</h3>
-    <p>We access your Gmail storage quota (total and used) to display your storage usage in the dashboard.</p>
+    <p>We access Google storage quota metadata (total and used) via drive.metadata.readonly to display storage usage and cleanup impact in the dashboard.</p>
 
     <h3>2.4 Cleanup Action Records</h3>
     <p>When you run a cleanup, we store: category of emails cleaned, count, bytes freed, and Gmail message IDs
@@ -140,8 +140,8 @@
       <p>Move messages to Trash and restore them. Used for cleanup and undo actions. No permanent deletion.</p>
     </div>
     <div class="scope-box">
-      <code>No additional Gmail scopes</code>
-      <p>Smart Mailbox Cleaner only requests gmail.readonly and gmail.modify for Gmail data access.</p>
+      <code>drive.metadata.readonly</code>
+      <p>Read Google storage quota metadata (total/used bytes) to show storage usage and estimated cleanup impact. No Drive file content is accessed.</p>
     </div>
 
     <p>Our use of information received from Google APIs adheres to the

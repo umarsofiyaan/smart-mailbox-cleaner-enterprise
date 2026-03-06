@@ -71,8 +71,8 @@ export default function Privacy() {
 
             <H3>2.3 Storage Usage Data</H3>
             <P>
-              We access your Gmail storage quota information (total quota and amount used) to display
-              your storage usage in the dashboard.
+              We access Google storage quota metadata (total quota and amount used) via
+              drive.metadata.readonly to display storage usage and cleanup impact in the dashboard.
             </P>
 
             <H3>2.4 Cleanup Action Records</H3>
@@ -117,6 +117,7 @@ export default function Privacy() {
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono text-gray-700 space-y-2">
               <div><span className="text-brand-600">gmail.readonly</span> - Read message metadata (size, labels, dates). Used to scan and categorise emails.</div>
               <div><span className="text-brand-600">gmail.modify</span> - Move messages to Trash and restore them. Used for cleanup and undo actions.</div>
+              <div><span className="text-brand-600">drive.metadata.readonly</span> - Read Google storage quota metadata (total/used bytes) to show storage usage and estimated cleanup impact. No Drive file content is accessed.</div>
             </div>
             <P>
               Our use of information received from Google APIs adheres to the{' '}

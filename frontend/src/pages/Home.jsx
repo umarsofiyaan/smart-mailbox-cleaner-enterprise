@@ -190,6 +190,7 @@ export default function Home() {
             <li>Email metadata (sender, subject, date)</li>
             <li>Email identifiers required for deletion</li>
             <li>Gmail labels and message organization data</li>
+            <li>Google storage quota metadata (total and used bytes)</li>
           </ul>
           <p className="text-sm text-gray-600 mb-2">This data is used only to:</p>
           <ul className="list-disc pl-5 text-sm text-gray-600 mb-4 space-y-1">
@@ -206,7 +207,7 @@ export default function Home() {
               Google Account Permissions
             </a>.
           </p>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
             {[
               {
                 scope: 'gmail.readonly',
@@ -215,6 +216,10 @@ export default function Home() {
               {
                 scope: 'gmail.modify',
                 purpose: 'Move selected emails to Trash at your explicit request, and restore them when you undo.',
+              },
+              {
+                scope: 'drive.metadata.readonly',
+                purpose: 'Read Google storage quota metadata (total/used) so the dashboard can show storage usage and cleanup impact. We do not read or access Drive files.',
               },
             ].map((p, i) => (
               <div key={i} className="bg-white rounded-xl p-4 border border-blue-100">
