@@ -108,6 +108,11 @@
     </style>
   </head>
   <body>
+    <script>
+      if (window.location.pathname === '/') {
+        window.location.replace('/home');
+      }
+    </script>
     <!-- React mounts here — once mounted it takes over the page -->
     <div id="root"></div>
 
