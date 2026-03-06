@@ -111,17 +111,33 @@ export default function Privacy() {
           </Section>
 
           <Section title="4. Google API Scopes">
-            <P>{appName} requests the following Gmail OAuth scopes:</P>
+            <P>
+              {appName} requests the following Google OAuth scopes:
+            </P>
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono text-gray-700 space-y-2">
-              <div><span className="text-brand-600">gmail.readonly</span> - Read message metadata required for mailbox analysis.</div>
-              <div><span className="text-brand-600">gmail.modify</span> - Move messages to Trash and restore messages when users undo actions.</div>
+              <div><span className="text-brand-600">gmail.readonly</span> - Read message metadata (size, labels, dates). Used to scan and categorise emails.</div>
+              <div><span className="text-brand-600">gmail.modify</span> - Move messages to Trash and restore them. Used for cleanup and undo actions.</div>
             </div>
+            <P>
+              Our use of information received from Google APIs adheres to the{' '}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand-600 underline"
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements. We do not transfer your Google user data to
+              third parties except as necessary to provide the Service, and we do not use it for
+              serving advertisements.
+            </P>
           </Section>
 
           <Section title="Google User Data">
             <P>
-              Smart Mailbox Cleaner&apos;s use and transfer of information received from Google APIs will
-              adhere to the Google API Services User Data Policy, including the Limited Use requirements.
+              Smart Mailbox Cleaner&apos;s use and transfer of information received from Google APIs will adhere to
+              the Google API Services User Data Policy, including the Limited Use requirements.
             </P>
             <P>
               The application only accesses Gmail data required to provide its functionality.
