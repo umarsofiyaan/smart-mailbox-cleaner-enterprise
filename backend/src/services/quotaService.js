@@ -22,13 +22,14 @@ async function ensureUserQuotaState(userId) {
          free_plan_used = COALESCE(free_plan_used, FALSE),
          plan_type = COALESCE(plan_type, 'free'),
          emails_deleted_total = COALESCE(emails_deleted_total, 0),
+         storage_recovered_mb = COALESCE(storage_recovered_mb, 0),
          updated_at = NOW()
      WHERE id = $1`,
     [userId, FREE_CREDITS]
   );
 
   const result = await query(
-    `SELECT id, delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total
+    `SELECT id, delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total, storage_recovered_mb
      FROM users
      WHERE id = $1`,
     [userId]
@@ -46,6 +47,7 @@ async function getQuota(userId) {
       planType: 'free',
       planExpiry: null,
       emailsDeletedTotal: 0,
+      storageRecoveredMb: 0,
       isPowerActive: false,
     };
   }
@@ -56,6 +58,7 @@ async function getQuota(userId) {
     planType: state.plan_type || 'free',
     planExpiry: state.plan_expiry || null,
     emailsDeletedTotal: Number(state.emails_deleted_total || 0),
+    storageRecoveredMb: Number(state.storage_recovered_mb || 0),
     isPowerActive: isPowerActiveFromRow(state),
   };
 }
@@ -134,7 +137,7 @@ async function consumeQuota(userId, emailCount) {
     await client.query('BEGIN');
 
     const result = await client.query(
-      `SELECT delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total
+      `SELECT delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total, storage_recovered_mb
        FROM users
        WHERE id = $1
        FOR UPDATE`,
@@ -150,15 +153,17 @@ async function consumeQuota(userId, emailCount) {
     const isPower = isPowerActiveFromRow(row);
     const currentCredits = Math.max(0, Number(row.delete_credits || 0));
     const nextCredits = isPower ? currentCredits : Math.max(0, currentCredits - count);
+    const recoveredMbInc = Math.floor((count * 75) / 1024);
 
     await client.query(
       `UPDATE users
        SET delete_credits = $2,
            free_plan_used = CASE WHEN $3::int > 0 THEN TRUE ELSE COALESCE(free_plan_used, FALSE) END,
            emails_deleted_total = COALESCE(emails_deleted_total, 0) + $3,
+           storage_recovered_mb = COALESCE(storage_recovered_mb, 0) + $4,
            updated_at = NOW()
        WHERE id = $1`,
-      [userId, nextCredits, count]
+      [userId, nextCredits, count, recoveredMbInc]
     );
 
     await client.query('COMMIT');
@@ -186,6 +191,7 @@ async function applyPurchasedPlan(userId, planType) {
        SET delete_credits = COALESCE(delete_credits, $2),
            plan_type = COALESCE(plan_type, 'free'),
            emails_deleted_total = COALESCE(emails_deleted_total, 0),
+           storage_recovered_mb = COALESCE(storage_recovered_mb, 0),
            free_plan_used = COALESCE(free_plan_used, FALSE),
            updated_at = NOW()
        WHERE id = $1`,
@@ -237,7 +243,7 @@ async function applyPurchasedPlan(userId, planType) {
 async function getQuotaSummary(userId) {
   try {
     const result = await query(
-      `SELECT delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total
+      `SELECT delete_credits, free_plan_used, plan_type, plan_expiry, emails_deleted_total, storage_recovered_mb
        FROM users
        WHERE id = $1`,
       [userId]
@@ -260,6 +266,7 @@ async function getQuotaSummary(userId) {
     const isPowerActive = isPowerActiveFromRow(row);
     const credits = Math.max(0, Number(row.delete_credits || 0));
     const emailsDeletedTotal = Number(row.emails_deleted_total || 0);
+    const storageRecoveredMb = Number(row.storage_recovered_mb || 0);
 
     const bytesRes = await query(
       `SELECT COALESCE(SUM(bytes_freed), 0) AS total_bytes
@@ -276,6 +283,7 @@ async function getQuotaSummary(userId) {
       planExpiry: row.plan_expiry,
       isPowerActive,
       emailsDeletedTotal,
+      storageRecoveredMb,
       storageRecoveredBytes,
       message: isPowerActive
         ? `Unlimited cleanup active until ${new Date(row.plan_expiry).toISOString()}`

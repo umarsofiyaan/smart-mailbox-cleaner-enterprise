@@ -17,6 +17,7 @@ import PaywallModal from '../components/PaywallModal';
 import CustomScanBuilder, { buildQueryPreview } from '../components/CustomScanBuilder';
 import PlaybooksPanel from '../components/PlaybooksPanel';
 import api, { subscriptionApi, cleanupApi, scanApi, automationApi, userApi } from '../api/client';
+import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
 
 function formatGB(bytes) {
   if (!bytes) return '0 MB';
@@ -173,9 +174,17 @@ export default function Dashboard() {
   const [pricing,               setPricing]               = useState(null);
   const [purchaseLoadingPlan,   setPurchaseLoadingPlan]   = useState('');
   const [simulatedProgress,     setSimulatedProgress]     = useState(null);
+  const [guardian,              setGuardian]              = useState(null);
+  const [guardianSaving,        setGuardianSaving]        = useState(false);
   const profileMenuRef = useRef(null);
 
   const isPro       = Boolean(user?.subscription?.isPro || quota?.plan_type === 'starter' || quota?.plan_type === 'pro' || quota?.is_power_active);
+  const activePlanType = quota?.is_power_active
+    ? 'power'
+    : (quota?.plan_type || (user?.subscription?.isPro ? 'pro' : 'free'));
+  const activePlanLabel = activePlanType === 'free'
+    ? 'Free'
+    : activePlanType.charAt(0).toUpperCase() + activePlanType.slice(1);
   const isRunning   = status === 'running' || status === 'starting';
   const estimateCleanupMinutes = (count = 0) => {
     const n = Number(count) || 0;
@@ -211,6 +220,7 @@ export default function Dashboard() {
     loadLatestScan();
     loadQuota();
     loadPricing();
+    loadGuardian();
     if (searchParams.get('upgrade') === 'success')       setShowUpgradeBanner(true);
     if (searchParams.get('manage') === 'subscription') {
       setShowSubscriptionModal(true);
@@ -234,6 +244,33 @@ export default function Dashboard() {
       setPricing(res.data || null);
     } catch {
       setPricing(null);
+    }
+  }
+
+  async function loadGuardian() {
+    try {
+      const res = await userApi.getGuardian();
+      setGuardian(res.data || null);
+    } catch {
+      setGuardian(null);
+    }
+  }
+
+  async function updateGuardian(patch) {
+    if (!guardian) return;
+    setGuardianSaving(true);
+    try {
+      const next = {
+        auto_clean_enabled: patch.auto_clean_enabled ?? guardian.auto_clean_enabled,
+        auto_clean_frequency: patch.auto_clean_frequency ?? guardian.auto_clean_frequency,
+        auto_clean_max_inbox_mb: patch.auto_clean_max_inbox_mb ?? guardian.auto_clean_max_inbox_mb,
+      };
+      await userApi.updateGuardian(next);
+      setGuardian((g) => ({ ...(g || {}), ...next }));
+    } catch (err) {
+      setUiNotice({ type: 'error', message: err?.response?.data?.error || 'Failed to update Auto Inbox Guardian.' });
+    } finally {
+      setGuardianSaving(false);
     }
   }
 
@@ -479,7 +516,7 @@ export default function Dashboard() {
     if (!paywallPayload?.cleanup) return;
     setPurchaseLoadingPlan(planType);
     try {
-      await subscriptionApi.purchase(planType);
+      await launchRazorpayCheckout(planType);
       await loadQuota();
       setPaywallOpen(false);
       await executeQueuedCleanup(paywallPayload.cleanup);
@@ -559,13 +596,15 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-3">
             {isPro ? (
-              <span className="text-xs bg-brand-100 text-brand-700 font-semibold px-3 py-1 rounded-full">Pro</span>
+              <span className="text-xs bg-brand-100 text-brand-700 font-semibold px-3 py-1 rounded-full">
+                {activePlanLabel} plan
+              </span>
             ) : (
               <button
                 onClick={() => navigate('/pricing')}
                 className="text-xs bg-gradient-to-r from-brand-600 to-purple-600 text-white font-semibold px-3 py-1.5 rounded-full hover:opacity-90 transition-opacity"
               >
-                Upgrade to Pro
+                View plans
               </button>
             )}
 
@@ -618,7 +657,7 @@ export default function Dashboard() {
       {/* Upgrade success banner */}
       {showUpgradeBanner && (
         <div className="bg-green-600 text-white text-center py-3 px-4">
-          <p className="text-sm font-semibold">🎉 Welcome to Pro! Bulk cleanup is now unlocked.</p>
+          <p className="text-sm font-semibold">Your plan is active. Cleanup is now unlocked.</p>
           <button onClick={() => setShowUpgradeBanner(false)} className="ml-4 text-white/70 hover:text-white text-xs underline">Dismiss</button>
         </div>
       )}
@@ -843,7 +882,7 @@ export default function Dashboard() {
                     onClick={() => navigate('/pricing')}
                     className="mt-4 bg-white text-brand-700 font-bold px-5 py-2.5 rounded-xl hover:bg-brand-50 transition-colors text-sm"
                   >
-                    Upgrade to Pro for unlimited -&gt;
+                    Unlock cleanup -&gt;
                   </button>
                 )}
               </div>
@@ -858,15 +897,15 @@ export default function Dashboard() {
 
                 {!isPro && (
                   <div className="bg-gradient-to-br from-brand-600 to-purple-700 rounded-2xl p-5 text-white">
-                    <p className="font-bold mb-2">Upgrade to Pro</p>
+                    <p className="font-bold mb-2">Unlock Cleanup</p>
                     <p className="text-brand-100 text-sm mb-4 leading-relaxed">
-                      One click to clean everything. Undo for 30 days. Just ₹449/month.
+                      Choose Starter, Pro, or Power to continue deleting more emails.
                     </p>
                     <button
                       onClick={() => navigate('/pricing')}
                       className="w-full bg-white text-brand-700 font-bold py-2.5 rounded-xl text-sm hover:bg-brand-50 transition-colors"
                     >
-                      See Pro Features
+                      See plans
                     </button>
                   </div>
                 )}
@@ -900,6 +939,55 @@ export default function Dashboard() {
                   </button>
                 </div>
 
+                {guardian && (
+                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">Auto Inbox Guardian</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Weekly cleanup for promotions/newsletters and inbox size guardrails.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateGuardian({ auto_clean_enabled: !guardian.auto_clean_enabled })}
+                        disabled={guardianSaving}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
+                          guardian.auto_clean_enabled
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {guardian.auto_clean_enabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      <select
+                        value={guardian.auto_clean_frequency || 'weekly'}
+                        onChange={(e) => updateGuardian({ auto_clean_frequency: e.target.value })}
+                        disabled={guardianSaving}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="daily">Daily</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={512}
+                        value={guardian.auto_clean_max_inbox_mb || 5120}
+                        onChange={(e) => setGuardian((g) => ({ ...(g || {}), auto_clean_max_inbox_mb: Number(e.target.value || 5120) }))}
+                        onBlur={() => updateGuardian({ auto_clean_max_inbox_mb: guardian.auto_clean_max_inbox_mb || 5120 })}
+                        disabled={guardianSaving}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                        placeholder="Max inbox MB"
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-2">
+                      Pricing ({guardian.region === 'reduced' ? 'Tier 3' : 'Tier 1'}): Lite ${guardian.plans?.lite_usd}/mo, Pro ${guardian.plans?.pro_usd}/mo.
+                    </p>
+                  </div>
+                )}
+
                 {topSenders.length > 0 && (
                   <div className="bg-white border border-gray-200 rounded-2xl p-5">
                     <p className="text-sm font-bold text-gray-900 mb-3">Top inbox senders</p>
@@ -926,7 +1014,7 @@ export default function Dashboard() {
                   )}
                   {!isPro && quotaRemaining === 0 && quota && (
                     <span className="text-sm text-amber-500 font-normal ml-2">
-                      (free quota used - upgrade for more)
+                      (free credits used - unlock cleanup to continue)
                     </span>
                   )}
                 </h2>

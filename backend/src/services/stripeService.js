@@ -1,6 +1,6 @@
 // src/services/stripeService.js (Razorpay)
-// Handles subscription lifecycle: checkout, payment verification, webhooks, status.
-// Updated: supports 4 billing plans (monthly, 3-month, 6-month, yearly).
+// Handles checkout, payment verification, webhooks, and subscription status.
+// Plan model: starter, pro, power.
 
 const Razorpay = require('razorpay');
 const crypto   = require('crypto');
@@ -13,53 +13,67 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// ─── Plan registry ────────────────────────────────────────────────────────────
-// Maps planId → { periodMonths, totalCount, amountPaise, label }
-// periodMonths: how many months of Pro access each billing cycle gives.
-// totalCount: max billing cycles (Razorpay param — 0 = infinite).
-// Add plan IDs to your .env as shown below.
+const FALLBACK_PLAN_ID = process.env.RAZORPAY_PLAN_ID || 'plan_default';
 
-const PLANS = {
-  // RAZORPAY_PLAN_ID_MONTHLY=<plan_id>
-  [process.env.RAZORPAY_PLAN_ID_MONTHLY || 'plan_monthly']: {
-    label:         'Monthly',
-    periodMonths:  1,
-    totalCount:    12,        // auto-renews up to 12 months
-    amountPaise:   44900,     // ₹449
-  },
-  // RAZORPAY_PLAN_ID_3MONTHS=<plan_id>
-  [process.env.RAZORPAY_PLAN_ID_3MONTHS || 'plan_3months']: {
-    label:         '3 Months',
-    periodMonths:  3,
-    totalCount:    4,         // 4 × 3-month = 1 year max
-    amountPaise:   129900,    // ₹1,299
-  },
-  // RAZORPAY_PLAN_ID_6MONTHS=<plan_id>
-  [process.env.RAZORPAY_PLAN_ID_6MONTHS || 'plan_6months']: {
-    label:         '6 Months',
-    periodMonths:  6,
-    totalCount:    2,         // 2 × 6-month = 1 year max
-    amountPaise:   249900,    // ₹2,499
-  },
-  // RAZORPAY_PLAN_ID_YEARLY=<plan_id>
-  [process.env.RAZORPAY_PLAN_ID_YEARLY || 'plan_yearly']: {
-    label:         'Yearly',
-    periodMonths:  12,
-    totalCount:    3,         // 3 years max
-    amountPaise:   449900,    // ₹4,499
-  },
-};
+function normalizePricingRegion(region) {
+  const value = String(region || '').toLowerCase();
+  if (value === 'reduced' || value === 'low') return 'reduced';
+  return 'full';
+}
 
-// Fallback: if env vars aren't set yet, use the legacy single plan
-const DEFAULT_PLAN_ID = process.env.RAZORPAY_PLAN_ID
-  || process.env.RAZORPAY_PLAN_ID_MONTHLY
-  || 'plan_monthly';
+function buildPlanConfig(pricingRegion = 'full') {
+  const reduced = normalizePricingRegion(pricingRegion) === 'reduced';
+  const suffix = reduced ? 'LOW' : 'FULL';
 
-const PLAN_ID_BY_TYPE = {
-  starter: process.env.RAZORPAY_PLAN_ID_STARTER || DEFAULT_PLAN_ID,
-  pro: process.env.RAZORPAY_PLAN_ID_PRO || process.env.RAZORPAY_PLAN_ID_MONTHLY || DEFAULT_PLAN_ID,
-  power: process.env.RAZORPAY_PLAN_ID_POWER || DEFAULT_PLAN_ID,
-};
+  const getPlanId = (base) =>
+    process.env[`RAZORPAY_PLAN_ID_${base}_${suffix}`]
+    || process.env[`RAZORPAY_PLAN_ID_${base}`]
+    || FALLBACK_PLAN_ID;
+
+  const getAmount = (base, fallback) =>
+    Number(
+      process.env[`RAZORPAY_${base}_AMOUNT_PAISE_${suffix}`]
+      || process.env[`RAZORPAY_${base}_AMOUNT_PAISE`]
+      || fallback
+    );
+
+  return {
+    starter: {
+      label: 'Starter',
+      periodMonths: 1,
+      totalCount: 1,
+      amountPaise: getAmount('STARTER', reduced ? 149 : 299),
+      planId: getPlanId('STARTER'),
+    },
+    pro: {
+      label: 'Pro',
+      periodMonths: 1,
+      totalCount: 1,
+      amountPaise: getAmount('PRO', reduced ? 349 : 799),
+      planId: getPlanId('PRO'),
+    },
+    power: {
+      label: 'Power',
+      periodMonths: 1,
+      totalCount: 1,
+      amountPaise: getAmount('POWER', reduced ? 699 : 1499),
+      planId: getPlanId('POWER'),
+    },
+  };
+}
+
+function buildPlanTypeLookup() {
+  const byId = new Map();
+  ['full', 'reduced'].forEach((region) => {
+    const conf = buildPlanConfig(region);
+    Object.entries(conf).forEach(([planType, meta]) => {
+      if (meta.planId) byId.set(meta.planId, planType);
+    });
+  });
+  return byId;
+}
+
+const PLAN_TYPE_BY_ID = buildPlanTypeLookup();
 
 function normalizePlanType(input) {
   const value = String(input || '').toLowerCase();
@@ -67,20 +81,15 @@ function normalizePlanType(input) {
   return 'pro';
 }
 
-/**
- * Resolve which plan to use for checkout.
- * If the requested planId is in our registry → use it.
- * Otherwise fall back to the default monthly plan.
- */
-function resolvePlanId(requestedPlanId) {
-  if (requestedPlanId && PLANS[requestedPlanId]) {
-    return requestedPlanId;
-  }
-  // Legacy: if RAZORPAY_PLAN_ID is set and matches
-  if (process.env.RAZORPAY_PLAN_ID && PLANS[process.env.RAZORPAY_PLAN_ID]) {
-    return process.env.RAZORPAY_PLAN_ID;
-  }
-  return DEFAULT_PLAN_ID;
+function getPlanTypeFromPlanId(planId) {
+  if (!planId) return null;
+  const mapped = PLAN_TYPE_BY_ID.get(planId);
+  if (mapped) return mapped;
+  const normalized = String(planId).toLowerCase();
+  if (normalized.includes('starter')) return 'starter';
+  if (normalized.includes('power')) return 'power';
+  if (normalized.includes('pro')) return 'pro';
+  return null;
 }
 
 /**
@@ -88,7 +97,8 @@ function resolvePlanId(requestedPlanId) {
  * Used as a fallback when Razorpay doesn't return current_end.
  */
 function calcPeriodEnd(planId) {
-  const plan = PLANS[planId];
+  const planType = getPlanTypeFromPlanId(planId);
+  const plan = buildPlanConfig('full')[planType] || buildPlanConfig('reduced')[planType];
   const months = plan?.periodMonths || 1;
   const end = new Date();
   end.setMonth(end.getMonth() + months);
@@ -97,10 +107,12 @@ function calcPeriodEnd(planId) {
 
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 
-async function createCheckoutSession(userId, email, displayName, requestedPlanId) {
+async function createCheckoutSession(userId, email, displayName, requestedPlanId, options = {}) {
   const pendingPlanType = normalizePlanType(requestedPlanId);
-  const planId   = PLAN_ID_BY_TYPE[pendingPlanType] || resolvePlanId(requestedPlanId);
-  const planMeta = PLANS[planId] || { totalCount: 12, amountPaise: 44900, label: 'Monthly' };
+  const pricingRegion = normalizePricingRegion(options.pricingRegion);
+  const planConfig = buildPlanConfig(pricingRegion);
+  const planMeta = planConfig[pendingPlanType] || planConfig.pro;
+  const planId = planMeta.planId;
 
   try {
     const subscription = await razorpay.subscriptions.create({
@@ -108,7 +120,7 @@ async function createCheckoutSession(userId, email, displayName, requestedPlanId
       customer_notify: 1,
       quantity:        1,
       total_count:     planMeta.totalCount,
-      notes:           { userId, email, planId },
+      notes:           { userId, email, planId, planType: pendingPlanType, pricingRegion },
     });
 
     // Store subscription ID in BOTH columns so webhooks can find it
@@ -130,6 +142,7 @@ async function createCheckoutSession(userId, email, displayName, requestedPlanId
       subscriptionId: subscription.id,
       planId,
       planLabel: planMeta.label,
+      pricingRegion,
     });
 
     return {
@@ -137,10 +150,11 @@ async function createCheckoutSession(userId, email, displayName, requestedPlanId
       keyId:          process.env.RAZORPAY_KEY_ID,
       amount:         planMeta.amountPaise,
       currency:       'INR',
-      name:           'Smart Mailbox Cleaner Pro',
+      name:           'Smart Mailbox Cleaner',
       description:    `${planMeta.label} Plan`,
       email,
       planType:       pendingPlanType,
+      pricingRegion,
     };
   } catch (err) {
     logger.error('Failed to create checkout session', err, { userId, email, planId });
@@ -184,7 +198,7 @@ async function verifyAndActivatePayment(userId, {
       logger.warn('Could not fetch subscription from Razorpay — using plan-based period', {
         err: fetchErr.message,
       });
-      periodEnd = calcPeriodEnd(DEFAULT_PLAN_ID);
+      periodEnd = calcPeriodEnd(buildPlanConfig('full').pro.planId);
     }
 
     const pendingRes = await query(
@@ -193,7 +207,8 @@ async function verifyAndActivatePayment(userId, {
        WHERE user_id = $1`,
       [userId]
     );
-    const planType = normalizePlanType(pendingRes.rows[0]?.pending_plan_type || detectedPlanId);
+    const detectedPlanType = getPlanTypeFromPlanId(detectedPlanId);
+    const planType = normalizePlanType(pendingRes.rows[0]?.pending_plan_type || detectedPlanType);
 
     await applyPurchasedPlan(userId, planType);
 
@@ -244,13 +259,14 @@ async function handleWebhook(rawBody, signature) {
       case 'subscription.activated':
       case 'subscription.charged': {
         const sub = event.payload.subscription.entity;
+        const inferredPlanType = normalizePlanType(getPlanTypeFromPlanId(sub.plan_id) || 'pro');
         const periodEnd = sub.current_end
           ? new Date(sub.current_end * 1000)
           : calcPeriodEnd(sub.plan_id);
 
         const result = await query(
           `UPDATE subscription_status
-           SET plan                   = COALESCE(pending_plan_type, 'pro'),
+           SET plan                   = COALESCE(pending_plan_type, $3),
                status                 = 'active',
                stripe_subscription_id  = $1,
                current_period_end     = $2,
@@ -259,7 +275,7 @@ async function handleWebhook(rawBody, signature) {
            WHERE stripe_subscription_id = $1
               OR stripe_customer_id     = $1
            RETURNING user_id, plan`,
-          [sub.id, periodEnd]
+          [sub.id, periodEnd, inferredPlanType]
         );
 
         if (result.rowCount === 0) {
@@ -277,7 +293,7 @@ async function handleWebhook(rawBody, signature) {
         break;
       }
 
-      // ── Cancelled — keep Pro until period ends (grace period) ─────────────
+      // ── Cancelled — keep paid access until period ends (grace period) ─────
       case 'subscription.cancelled': {
         const sub = event.payload.subscription.entity;
 
@@ -292,7 +308,7 @@ async function handleWebhook(rawBody, signature) {
         );
 
         if (result.rowCount > 0) {
-          logger.info('Webhook: subscription cancelled — Pro kept until period end', {
+          logger.info('Webhook: subscription cancelled — paid access kept until period end', {
             userId:      result.rows[0].user_id,
             accessUntil: result.rows[0].current_period_end,
           });

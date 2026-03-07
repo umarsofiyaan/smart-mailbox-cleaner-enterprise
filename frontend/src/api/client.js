@@ -105,6 +105,7 @@ export const cleanupApi = {
 export const subscriptionApi = {
   getPricing:      () => api.get('/subscription/pricing'),
   createCheckout:  (payload = {}) => api.post('/subscription/checkout', payload),
+  verifyPayment:   (payload) => api.post('/subscription/verify', payload),
   purchase:        (planType) => api.post('/subscription/purchase', { plan_type: planType }),
   createPortal:   () => api.post('/subscription/portal'),
   getStatus:      () => api.get('/subscription/status'),
@@ -113,6 +114,8 @@ export const subscriptionApi = {
 
 export const userApi = {
   getQuota: () => api.get('/user/quota'),
+  getGuardian: () => api.get('/user/guardian'),
+  updateGuardian: (payload) => api.patch('/user/guardian', payload),
 };
 
 export const automationApi = {

@@ -8,15 +8,15 @@ const FULL_PRICE_COUNTRIES = new Set(['US', 'GB', 'CA', 'AU', 'DE', 'FR']);
 const REDUCED_PRICE_COUNTRIES = new Set(['IN', 'ID', 'PH', 'BR', 'PK']);
 
 const FULL_PRICING = {
-  starter: 4.99,
-  pro: 9.99,
-  power: 19.0,
+  starter: 2.99,
+  pro: 7.99,
+  power: 14.99,
 };
 
 const REDUCED_PRICING = {
-  starter: 1.99,
-  pro: 3.99,
-  power: 7.0,
+  starter: 1.49,
+  pro: 3.49,
+  power: 6.99,
 };
 
 const REGION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -76,6 +76,28 @@ function extractClientIp(req) {
   return req.ip || req.connection?.remoteAddress || null;
 }
 
+function getPricingFromSession(req) {
+  const countryCode = String(req?.cookies?.pricing_country || '').toUpperCase();
+  const region = String(req?.cookies?.pricing_region || '').toLowerCase();
+  if (!countryCode) return null;
+  if (region !== 'full' && region !== 'reduced') return null;
+  return getPlanPricing(countryCode);
+}
+
+function cachePricingInSession(res, pricingContext) {
+  if (!res || !pricingContext?.countryCode) return;
+  const secure = process.env.NODE_ENV === 'production';
+  const cookieOptions = {
+    httpOnly: true,
+    secure,
+    sameSite: 'lax',
+    maxAge: REGION_CACHE_TTL_MS,
+    path: '/',
+  };
+  res.cookie('pricing_country', pricingContext.countryCode, cookieOptions);
+  res.cookie('pricing_region', pricingContext.region, cookieOptions);
+}
+
 async function fetchWithTimeout(url, timeoutMs = 2500) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -124,6 +146,9 @@ async function detectCountryCodeByIp(ipAddress) {
 }
 
 async function getUserPricingContext(userId, req) {
+  const sessionPricing = getPricingFromSession(req);
+  if (sessionPricing) return sessionPricing;
+
   const cached = memoryRegionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
     return getPlanPricing(cached.countryCode);
@@ -177,4 +202,5 @@ module.exports = {
   REDUCED_PRICING,
   getPlanPricing,
   getUserPricingContext,
+  cachePricingInSession,
 };

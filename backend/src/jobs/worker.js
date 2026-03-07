@@ -11,6 +11,7 @@ const { runScan, runCustomScan } = require('../services/scanEngine');
 const { getOAuthTokens } = require('../services/tokenService');
 const { executePlaybookRun, enqueuePlaybookRun } = require('../services/playbookService');
 const { checkQuota, consumeQuota, getQuotaSummary } = require('../services/quotaService');
+const { runAutoCleanupJob } = require('./autoCleanupJob');
 const {
   getGmailClient,
   collectMessageIdsByQuery,
@@ -301,6 +302,7 @@ async function runCronTasks() {
 
     if (lastDailyReset !== dayKey) {
       await runDailyQuotaReset();
+      await runAutoCleanupJob();
       lastDailyReset = dayKey;
     }
 

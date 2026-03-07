@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { subscriptionApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth.jsx';
+import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
 
 function fmt(price) {
   return `$${Number(price || 0).toFixed(2)}`;
@@ -34,7 +35,7 @@ export default function Pricing() {
     setLoading(planType);
     setError('');
     try {
-      await subscriptionApi.purchase(planType);
+      await launchRazorpayCheckout(planType);
       navigate('/dashboard?upgrade=success');
     } catch (err) {
       setError(err?.response?.data?.error || err.message || 'Purchase failed.');

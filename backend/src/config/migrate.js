@@ -135,6 +135,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS free_plan_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'free';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_expiry TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS emails_deleted_total INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_recovered_mb INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_clean_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_clean_frequency TEXT DEFAULT 'weekly';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_clean_last_run_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_clean_max_inbox_mb INTEGER DEFAULT 5120;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_country VARCHAR(2);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_region TEXT DEFAULT 'full';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS region_detected_at TIMESTAMPTZ;
@@ -144,6 +149,10 @@ SET delete_credits = COALESCE(delete_credits, 1000),
     free_plan_used = COALESCE(free_plan_used, FALSE),
     plan_type = COALESCE(plan_type, 'free'),
     emails_deleted_total = COALESCE(emails_deleted_total, 0),
+    storage_recovered_mb = COALESCE(storage_recovered_mb, 0),
+    auto_clean_enabled = COALESCE(auto_clean_enabled, FALSE),
+    auto_clean_frequency = COALESCE(auto_clean_frequency, 'weekly'),
+    auto_clean_max_inbox_mb = COALESCE(auto_clean_max_inbox_mb, 5120),
     pricing_region = COALESCE(pricing_region, 'full'),
     updated_at = NOW();
 
@@ -151,9 +160,8 @@ SET delete_credits = COALESCE(delete_credits, 1000),
 CREATE TABLE IF NOT EXISTS user_quota (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-  -- Lifetime free allowance (500 emails total, shared across all-time use)
-  -- Lifetime free allowance (5,000 emails total, shared across all-time use)
-  lifetime_allowance INTEGER NOT NULL DEFAULT 5000,
+  -- Lifetime free allowance (1,000 emails total, shared across all-time use)
+  lifetime_allowance INTEGER NOT NULL DEFAULT 1000,
   -- Daily quota disabled for the new free model (legacy field kept for compatibility)
   daily_allowance INTEGER NOT NULL DEFAULT 0,
   daily_used INTEGER NOT NULL DEFAULT 0,
@@ -164,14 +172,14 @@ CREATE TABLE IF NOT EXISTS user_quota (
 );
 
 -- Keep existing DBs aligned with current free-tier defaults.
-ALTER TABLE user_quota ALTER COLUMN lifetime_allowance SET DEFAULT 5000;
+ALTER TABLE user_quota ALTER COLUMN lifetime_allowance SET DEFAULT 1000;
 ALTER TABLE user_quota ALTER COLUMN daily_allowance SET DEFAULT 0;
 UPDATE user_quota
-SET lifetime_allowance = GREATEST(lifetime_allowance, 5000),
+SET lifetime_allowance = GREATEST(lifetime_allowance, 1000),
     daily_allowance = 0,
     daily_used = 0,
     updated_at = NOW()
-WHERE lifetime_allowance < 5000 OR daily_allowance != 0 OR daily_used != 0;
+WHERE lifetime_allowance < 1000 OR daily_allowance != 0 OR daily_used != 0;
 
 CREATE INDEX IF NOT EXISTS idx_user_quota_user_id ON user_quota(user_id);
 

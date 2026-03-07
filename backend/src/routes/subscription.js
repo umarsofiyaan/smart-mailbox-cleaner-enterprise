@@ -4,7 +4,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { applyPurchasedPlan, getQuotaSummary } = require('../services/quotaService');
-const { getUserPricingContext } = require('../services/pricingService');
+const { getUserPricingContext, cachePricingInSession } = require('../services/pricingService');
 const {
   createCheckoutSession,
   createPortalSession,
@@ -17,6 +17,7 @@ const logger = require('../utils/logger');
 router.get('/pricing', requireAuth, async (req, res) => {
   try {
     const pricing = await getUserPricingContext(req.user.id, req);
+    cachePricingInSession(res, pricing);
     return res.json(pricing);
   } catch (err) {
     logger.error('Failed to fetch regional pricing', err, { userId: req.user.id });
@@ -31,11 +32,14 @@ router.get('/pricing', requireAuth, async (req, res) => {
 router.post('/checkout', requireAuth, async (req, res) => {
   const planType = String(req.body?.planType || 'pro').toLowerCase();
   try {
+    const pricing = await getUserPricingContext(req.user.id, req);
+    cachePricingInSession(res, pricing);
     const checkoutData = await createCheckoutSession(
       req.user.id,
       req.user.email,
       req.user.displayName,
-      planType
+      planType,
+      { pricingRegion: pricing?.region || 'full' }
     );
     return res.json(checkoutData);
   } catch (err) {
@@ -51,6 +55,13 @@ router.post('/checkout', requireAuth, async (req, res) => {
  * In production, call this after a verified payment event.
  */
 router.post('/purchase', requireAuth, async (req, res) => {
+  if (process.env.ALLOW_DIRECT_PURCHASE !== 'true') {
+    return res.status(403).json({
+      error: 'DIRECT_PURCHASE_DISABLED',
+      message: 'Use Razorpay checkout and payment verification flow.',
+    });
+  }
+
   const planType = String(req.body?.plan_type || '').toLowerCase();
   if (!['starter', 'pro', 'power'].includes(planType)) {
     return res.status(400).json({ error: 'Invalid plan_type. Must be starter, pro, or power.' });

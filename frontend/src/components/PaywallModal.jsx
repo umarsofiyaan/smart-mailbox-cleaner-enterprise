@@ -60,7 +60,14 @@ export default function PaywallModal({
                 onClick={() => setSelectedPlan(plan.planType)}
                 className={`text-left border rounded-xl p-4 transition-colors ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
               >
-                <p className="text-sm font-semibold text-gray-900">{plan.label}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-900">{plan.label}</p>
+                  {plan.planType === 'pro' && (
+                    <span className="text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                      Most Popular
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 mt-1">{plan.limitLabel}</p>
                 <p className="text-2xl font-bold text-gray-900 mt-3">{formatUsd(plan.priceUsd)}</p>
               </button>
