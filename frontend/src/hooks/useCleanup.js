@@ -16,6 +16,7 @@ export function useCleanup() {
     cleanupMode = 'ids',
     customQuery,
     expectedMessageCount,
+    mailboxId,
   }) => {
     setExecuting(true);
     setError(null);
@@ -29,6 +30,7 @@ export function useCleanup() {
         cleanupMode,
         customQuery,
         expectedMessageCount,
+        mailboxId,
       });
       setLastAction(response.data);
       return response.data;

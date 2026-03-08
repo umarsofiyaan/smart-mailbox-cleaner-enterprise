@@ -31,6 +31,22 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   UNIQUE(user_id)
 );
 
+CREATE TABLE IF NOT EXISTS connected_mailboxes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  google_account_id VARCHAR(255) NOT NULL,
+  google_email VARCHAR(255) NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  token_expiry TIMESTAMPTZ NOT NULL,
+  scopes TEXT[],
+  is_primary BOOLEAN DEFAULT FALSE,
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, google_account_id)
+);
+
 -- Scan sessions
 CREATE TABLE IF NOT EXISTS scans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -68,6 +84,7 @@ CREATE TABLE IF NOT EXISTS cleanup_actions (
 );
 
 ALTER TABLE cleanup_actions ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE cleanup_actions ADD COLUMN IF NOT EXISTS mailbox_id UUID REFERENCES connected_mailboxes(id) ON DELETE SET NULL;
 
 -- Subscription status
 CREATE TABLE IF NOT EXISTS subscription_status (
@@ -143,6 +160,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_clean_max_inbox_mb INTEGER DEFAU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_country VARCHAR(2);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pricing_region TEXT DEFAULT 'full';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS region_detected_at TIMESTAMPTZ;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS mailbox_id UUID REFERENCES connected_mailboxes(id) ON DELETE SET NULL;
 
 UPDATE users
 SET delete_credits = COALESCE(delete_credits, 1000),
@@ -187,11 +205,15 @@ CREATE INDEX IF NOT EXISTS idx_user_quota_user_id ON user_quota(user_id);
 CREATE INDEX IF NOT EXISTS idx_message_labels_action_id ON message_original_labels(action_id);
 CREATE INDEX IF NOT EXISTS idx_message_labels_message_id ON message_original_labels(message_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user_id ON oauth_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_connected_mailboxes_user_id ON connected_mailboxes(user_id);
+CREATE INDEX IF NOT EXISTS idx_connected_mailboxes_primary ON connected_mailboxes(user_id, is_primary);
 CREATE INDEX IF NOT EXISTS idx_scans_user_id ON scans(user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status);
+CREATE INDEX IF NOT EXISTS idx_scans_mailbox_id ON scans(mailbox_id);
 CREATE INDEX IF NOT EXISTS idx_cleanup_actions_user_id ON cleanup_actions(user_id);
 CREATE INDEX IF NOT EXISTS idx_cleanup_actions_expires_at ON cleanup_actions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_cleanup_actions_status ON cleanup_actions(status);
+CREATE INDEX IF NOT EXISTS idx_cleanup_actions_mailbox_id ON cleanup_actions(mailbox_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_at ON jobs(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
@@ -214,6 +236,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
   CREATE TRIGGER update_oauth_tokens_updated_at BEFORE UPDATE ON oauth_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TRIGGER update_connected_mailboxes_updated_at BEFORE UPDATE ON connected_mailboxes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN

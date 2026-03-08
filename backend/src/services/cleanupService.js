@@ -71,13 +71,20 @@ async function loadOriginalLabelsMap(actionId) {
   }
 }
 
-async function createCleanupAction(userId, scanId, category, estimatedBytes = 0, expectedMessageCount = 0) {
+async function createCleanupAction(
+  userId,
+  scanId,
+  category,
+  estimatedBytes = 0,
+  expectedMessageCount = 0,
+  mailboxId = null
+) {
   const actionResult = await query(
     `INSERT INTO cleanup_actions
-       (user_id, scan_id, category, message_ids, status, bytes_freed, message_count)
-     VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+       (user_id, scan_id, mailbox_id, category, message_ids, status, bytes_freed, message_count)
+     VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
      RETURNING id`,
-    [userId, scanId, category, [], estimatedBytes, expectedMessageCount]
+    [userId, scanId, mailboxId, category, [], estimatedBytes, expectedMessageCount]
   );
   return actionResult.rows[0];
 }

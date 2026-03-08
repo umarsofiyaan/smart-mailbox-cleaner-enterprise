@@ -53,7 +53,7 @@ router.post(
     const userId = req.user.id;
 
     const scanCheck = await query(
-      'SELECT id FROM scans WHERE id = $1 AND user_id = $2',
+      'SELECT id, mailbox_id FROM scans WHERE id = $1 AND user_id = $2',
       [scanId, userId]
     );
     if (scanCheck.rows.length === 0) {
@@ -104,10 +104,18 @@ router.post(
       const declaredExpectedCount = Math.max(0, Number(expectedMessageCount) || 0);
       const expectedCount = cleanupMode === 'query' ? declaredExpectedCount : messageIds.length;
 
-      const action = await createCleanupAction(userId, scanId, category, estimatedBytes, expectedCount);
+      const action = await createCleanupAction(
+        userId,
+        scanId,
+        category,
+        estimatedBytes,
+        expectedCount,
+        scanMailboxId
+      );
       const jobId = await enqueueCleanup(userId, {
         actionId: action.id,
         scanId,
+        mailboxId: scanMailboxId,
         category,
         cleanupMode,
         customQuery: cleanupMode === 'query' ? customQuery : null,
@@ -203,7 +211,14 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      const tokens = await getOAuthTokens(req.user.id);
+      const actionRes = await query(
+        `SELECT mailbox_id
+         FROM cleanup_actions
+         WHERE id = $1 AND user_id = $2`,
+        [req.params.actionId, req.user.id]
+      );
+      const mailboxId = actionRes.rows[0]?.mailbox_id || null;
+      const tokens = await getOAuthTokens(req.user.id, mailboxId);
       const result = await undoCleanup(req.params.actionId, req.user.id, tokens);
       return res.json({
         success: !result.isPartial,
@@ -257,3 +272,4 @@ router.get('/quota', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+    const scanMailboxId = scanCheck.rows[0].mailbox_id || null;

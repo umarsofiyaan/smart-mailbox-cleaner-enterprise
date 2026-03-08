@@ -41,14 +41,14 @@ export function useScan() {
 
   // ── Quick scan ────────────────────────────────────────────────────────────
 
-  const startScan = useCallback(async (scanDepth = '12months') => {
+  const startScan = useCallback(async (scanDepth = '12months', mailboxId = null) => {
     setStatus('starting');
     setError(null);
     setScan(null);
     stopPolling();
 
     try {
-      const response = await scanApi.startScan(scanDepth);
+      const response = await scanApi.startScan(scanDepth, mailboxId);
       const { scanId: newScanId } = response.data;
       setScanId(newScanId);
       setStatus('running');
@@ -79,7 +79,7 @@ export function useScan() {
 
   // ── Custom scan ───────────────────────────────────────────────────────────
 
-  const startCustomScan = useCallback(async (params) => {
+  const startCustomScan = useCallback(async (params = {}) => {
     setStatus('starting');
     setError(null);
     setScan(null);
@@ -117,9 +117,9 @@ export function useScan() {
 
   // ── Load latest ──────────────────────────────────────────────────────────
 
-  const loadLatestScan = useCallback(async () => {
+  const loadLatestScan = useCallback(async (mailboxId = null) => {
     try {
-      const latestRes = await scanApi.getLatestScan();
+      const latestRes = await scanApi.getLatestScan(mailboxId);
       const { scanId: latestId } = latestRes.data;
       const scanRes = await scanApi.getScan(latestId);
       setScan(scanRes.data);

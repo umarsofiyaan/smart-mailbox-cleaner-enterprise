@@ -80,15 +80,16 @@ export const authApi = {
   logout:        () => api.post('/auth/logout'),
   deleteAccount: () => api.delete('/auth/account'),
   refresh:       (rt) => api.post('/auth/refresh', { refresh_token: rt }, { timeout: 120000 }),
+  getGoogleConnectUrl: () => api.get('/auth/google/connect', { timeout: 120000 }),
 };
 
 export const scanApi = {
-  startScan:         (scanDepth = '12months') => api.post('/scan/start', { scanDepth }),
+  startScan:         (scanDepth = '12months', mailboxId = null) => api.post('/scan/start', { scanDepth, mailboxId }),
   startCustomScan:   (params)                 => api.post('/scan/start-custom', params),
   previewCustomScan: (params)                 => api.post('/scan/preview-custom', params),
   getScan:           (scanId)                 => api.get(`/scan/${scanId}`),
-  getLatestScan:     ()                       => api.get('/scan/user/latest'),
-  getScanHistory:    ()                       => api.get('/scan/user/history'),
+  getLatestScan:     (mailboxId = null)       => api.get('/scan/user/latest', { params: mailboxId ? { mailboxId } : {} }),
+  getScanHistory:    (mailboxId = null)       => api.get('/scan/user/history', { params: mailboxId ? { mailboxId } : {} }),
 };
 
 export const cleanupApi = {
@@ -116,6 +117,9 @@ export const userApi = {
   getQuota: () => api.get('/user/quota'),
   getGuardian: () => api.get('/user/guardian'),
   updateGuardian: (payload) => api.patch('/user/guardian', payload),
+  getMailboxes: () => api.get('/user/mailboxes'),
+  setPrimaryMailbox: (mailboxId) => api.patch(`/user/mailboxes/${mailboxId}/primary`),
+  deleteMailbox: (mailboxId) => api.delete(`/user/mailboxes/${mailboxId}`),
 };
 
 export const automationApi = {

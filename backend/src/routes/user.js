@@ -6,6 +6,11 @@ const { requireAuth } = require('../middleware/auth');
 const { getQuotaSummary } = require('../services/quotaService');
 const { query } = require('../config/database');
 const { getUserPricingContext, cachePricingInSession } = require('../services/pricingService');
+const {
+  listConnectedMailboxes,
+  setPrimaryMailbox,
+  removeMailbox,
+} = require('../services/mailboxService');
 const logger = require('../utils/logger');
 
 router.get('/quota', requireAuth, async (req, res) => {
@@ -94,6 +99,42 @@ router.patch('/guardian', requireAuth, async (req, res) => {
   } catch (err) {
     logger.error('Failed to update guardian settings', err, { userId: req.user.id });
     return res.status(500).json({ error: 'Failed to update guardian settings.' });
+  }
+});
+
+router.get('/mailboxes', requireAuth, async (req, res) => {
+  try {
+    const result = await listConnectedMailboxes(req.user.id);
+    return res.json(result);
+  } catch (err) {
+    logger.error('Failed to fetch mailboxes', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to fetch mailboxes.' });
+  }
+});
+
+router.patch('/mailboxes/:mailboxId/primary', requireAuth, async (req, res) => {
+  try {
+    await setPrimaryMailbox(req.user.id, req.params.mailboxId);
+    return res.json({ success: true });
+  } catch (err) {
+    if (err.message === 'Mailbox not found.') {
+      return res.status(404).json({ error: err.message });
+    }
+    logger.error('Failed to set primary mailbox', err, { userId: req.user.id, mailboxId: req.params.mailboxId });
+    return res.status(500).json({ error: 'Failed to set primary mailbox.' });
+  }
+});
+
+router.delete('/mailboxes/:mailboxId', requireAuth, async (req, res) => {
+  try {
+    await removeMailbox(req.user.id, req.params.mailboxId);
+    return res.json({ success: true });
+  } catch (err) {
+    if (err.message === 'Mailbox not found.' || err.message === 'At least one mailbox must remain connected.') {
+      return res.status(400).json({ error: err.message });
+    }
+    logger.error('Failed to remove mailbox', err, { userId: req.user.id, mailboxId: req.params.mailboxId });
+    return res.status(500).json({ error: 'Failed to remove mailbox.' });
   }
 });
 

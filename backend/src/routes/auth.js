@@ -20,6 +20,7 @@ const {
   deleteUserTokens,
   getOAuthTokens,
 } = require('../services/tokenService');
+const { upsertConnectedMailbox } = require('../services/mailboxService');
 const { grantDailyQuotaOnLogin } = require('../services/quotaService');
 const { sendWelcomeEmail } = require('../services/emailService');
 const { authLimiter } = require('../middleware/security');
@@ -48,6 +49,14 @@ const OAUTH_STATE_COOKIE_OPTIONS = {
   path: '/auth/google/callback',
 };
 
+const OAUTH_CONNECT_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'none',
+  maxAge: 10 * 60 * 1000,
+  path: '/auth/google/callback',
+};
+
 function base64UrlEncode(str) {
   return Buffer.from(str, 'utf8').toString('base64url');
 }
@@ -56,11 +65,12 @@ function base64UrlDecode(str) {
   return Buffer.from(str, 'base64url').toString('utf8');
 }
 
-function createOAuthState(mode, nonce) {
+function createOAuthState(mode, nonce, userId = null) {
   const secret = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET || 'fallback_state_secret';
   const payload = {
     mode,
     nonce,
+    userId,
     iat: Date.now(),
   };
   const encoded = base64UrlEncode(JSON.stringify(payload));
@@ -111,13 +121,29 @@ router.get('/google', authLimiter, (req, res) => {
   res.json({ url: authUrl });
 });
 
+router.get('/google/connect', requireAuth, authLimiter, async (req, res) => {
+  try {
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const state = createOAuthState('connect', nonce, req.user.id);
+    const authUrl = getAuthUrl(state, true, req.user.email);
+    res.cookie('oauth_state_nonce', nonce, OAUTH_STATE_COOKIE_OPTIONS);
+    res.cookie('oauth_connect_user', req.user.id, OAUTH_CONNECT_COOKIE_OPTIONS);
+    return res.json({ url: authUrl });
+  } catch (err) {
+    logger.error('Failed to create connect mailbox URL', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to start mailbox connection.' });
+  }
+});
+
 // ─── GET /auth/google/callback ────────────────────────────────────────────────
 // OAuth2 callback. Exchanges code for tokens, creates/restores user.
 
 router.get('/google/callback', authLimiter, async (req, res) => {
   const { code, state, error } = req.query;
   const stateNonce = req.cookies?.oauth_state_nonce;
+  const connectCookieUserId = req.cookies?.oauth_connect_user;
   res.clearCookie('oauth_state_nonce', { path: '/auth/google/callback' });
+  res.clearCookie('oauth_connect_user', { path: '/auth/google/callback' });
 
   if (error) {
     logger.warn('Google OAuth error returned', { error });
@@ -134,10 +160,40 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     return res.redirect(`${process.env.FRONTEND_URL}/login?error=invalid_state`);
   }
   const oauthMode = verified.payload.mode === 'extension' ? 'extension' : 'web';
+  const isConnectMode = verified.payload.mode === 'connect';
 
   try {
     const tokens  = await exchangeCode(code);
     const profile = await getGoogleProfile(tokens.access_token);
+
+    if (isConnectMode) {
+      if (!connectCookieUserId || connectCookieUserId !== verified.payload.userId) {
+        logger.warn('Mailbox connect callback failed connect user check', {
+          hasCookie: !!connectCookieUserId,
+          hasStateUser: !!verified.payload.userId,
+        });
+        return res.redirect(`${process.env.FRONTEND_URL}/dashboard?mailbox_connected=error`);
+      }
+      if (!tokens.refresh_token) {
+        return res.redirect(`${process.env.FRONTEND_URL}/dashboard?mailbox_connected=consent_required`);
+      }
+
+      try {
+        await upsertConnectedMailbox(connectCookieUserId, profile, tokens);
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/dashboard?mailbox_connected=success&mailbox_email=${encodeURIComponent(profile.email || '')}`
+        );
+      } catch (connectErr) {
+        logger.error('Mailbox connection failed', connectErr, {
+          userId: connectCookieUserId,
+          email: profile.email,
+        });
+        if (String(connectErr.message || '').startsWith('MAILBOX_LIMIT_REACHED')) {
+          return res.redirect(`${process.env.FRONTEND_URL}/dashboard?mailbox_connected=limit`);
+        }
+        return res.redirect(`${process.env.FRONTEND_URL}/dashboard?mailbox_connected=error`);
+      }
+    }
 
     // ── Find existing user (including soft-deleted) ───────────────────────
     // We check ALL users (not just active) so we can detect and handle

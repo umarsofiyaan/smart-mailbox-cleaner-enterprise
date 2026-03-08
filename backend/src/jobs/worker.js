@@ -85,13 +85,13 @@ async function processNextJob() {
 
 async function executeJob(job) {
   if (job.job_type === 'SCAN') {
-    const { scanId, scanDepth } = job.payload;
-    const tokens = await getOAuthTokens(job.user_id);
+    const { scanId, scanDepth, mailboxId } = job.payload;
+    const tokens = await getOAuthTokens(job.user_id, mailboxId || null);
     await query("UPDATE scans SET status='running' WHERE id=$1", [scanId]);
     await runScan(scanId, job.user_id, tokens, scanDepth || '12months');
   } else if (job.job_type === 'CUSTOM_SCAN') {
-    const { scanId, customQuery } = job.payload;
-    const tokens = await getOAuthTokens(job.user_id);
+    const { scanId, customQuery, mailboxId } = job.payload;
+    const tokens = await getOAuthTokens(job.user_id, mailboxId || null);
     await query("UPDATE scans SET status='running' WHERE id=$1", [scanId]);
     await runCustomScan(scanId, job.user_id, tokens, customQuery);
   } else if (job.job_type === 'PLAYBOOK_RUN') {
@@ -141,7 +141,7 @@ async function executeCleanupJob(job) {
       throw new Error(quotaCheck.reason);
     }
 
-    const tokens = await getOAuthTokens(job.user_id);
+    const tokens = await getOAuthTokens(job.user_id, job.payload?.mailboxId || null);
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
     const trashBeforeEstimate = await getTrashEstimate(gmail);
     const trashConversationsBefore = await getTrashConversationEstimate(gmail);
@@ -275,10 +275,10 @@ async function executeCleanupJob(job) {
   }
 }
 
-async function enqueueScan(userId, scanId, scanDepth = '12months') {
+async function enqueueScan(userId, scanId, scanDepth = '12months', mailboxId = null) {
   await query(
     `INSERT INTO jobs (user_id, job_type, payload, status) VALUES ($1,'SCAN',$2,'queued')`,
-    [userId, JSON.stringify({ scanId, scanDepth })]
+    [userId, JSON.stringify({ scanId, scanDepth, mailboxId })]
   );
 }
 

@@ -9,6 +9,7 @@ const { query } = require('../config/database');
 const { getOAuthTokens } = require('../services/tokenService');
 const { runScan, runCustomScan } = require('../services/scanEngine');
 const { enqueueScan } = require('../jobs/worker');
+const { resolveMailboxForUser } = require('../services/mailboxService');
 const logger = require('../utils/logger');
 
 /**
@@ -20,7 +21,14 @@ const logger = require('../utils/logger');
  */
 router.post('/start', requireAuth, scanLimiter, async (req, res) => {
   const userId = req.user.id;
-  let { scanDepth } = req.body;
+  let { scanDepth, mailboxId } = req.body;
+  let mailbox;
+
+  try {
+    mailbox = await resolveMailboxForUser(userId, mailboxId || null);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Invalid mailbox.' });
+  }
 
   // Validate scanDepth
   const validDepths = ['12months', '24months', 'all'];
@@ -66,13 +74,13 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
   // Create scan record
   const scanId = uuidv4();
   await query(
-    `INSERT INTO scans (id, user_id, status, scan_depth)
-     VALUES ($1, $2, 'pending', $3)`,
-    [scanId, userId, scanDepth]
+    `INSERT INTO scans (id, user_id, mailbox_id, status, scan_depth)
+     VALUES ($1, $2, $3, 'pending', $4)`,
+    [scanId, userId, mailbox.id, scanDepth]
   );
 
   // Enqueue background job
-  await enqueueScan(userId, scanId, scanDepth);
+  await enqueueScan(userId, scanId, scanDepth, mailbox.id);
 
   logger.info('Scan queued', { scanId, userId, scanDepth });
 
@@ -81,6 +89,7 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
     status: 'pending',
     message: 'Scan started. Poll /scan/:scanId for results.',
     estimatedMinutes: scanDepth === 'all' ? '3-10' : '1-3',
+    mailbox: { id: mailbox.id, email: mailbox.google_email },
   });
 });
 
@@ -89,11 +98,17 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
  * Get the most recent completed scan for the user.
  */
 router.get('/user/latest', requireAuth, async (req, res) => {
+  let mailboxFilter = '';
+  const params = [req.user.id];
+  if (req.query.mailboxId) {
+    mailboxFilter = 'AND mailbox_id = $2';
+    params.push(req.query.mailboxId);
+  }
   const result = await query(
     `SELECT id FROM scans
-     WHERE user_id = $1 AND status = 'complete'
+     WHERE user_id = $1 ${mailboxFilter} AND status = 'complete'
      ORDER BY completed_at DESC LIMIT 1`,
-    [req.user.id]
+    params
   );
 
   if (result.rows.length === 0) {
@@ -109,14 +124,20 @@ router.get('/user/latest', requireAuth, async (req, res) => {
  * List recent scans for the user.
  */
 router.get('/user/history', requireAuth, async (req, res) => {
+  let mailboxFilter = '';
+  const params = [req.user.id];
+  if (req.query.mailboxId) {
+    mailboxFilter = 'AND s.mailbox_id = $2';
+    params.push(req.query.mailboxId);
+  }
   const result = await query(
-    `SELECT id, status, scan_depth, total_messages_scanned,
+    `SELECT s.id, s.status, s.scan_depth, s.total_messages_scanned,
             estimated_bytes_freeable, started_at, completed_at
-     FROM scans
-     WHERE user_id = $1
-     ORDER BY started_at DESC
+     FROM scans s
+     WHERE s.user_id = $1 ${mailboxFilter}
+     ORDER BY s.started_at DESC
      LIMIT 10`,
-    [req.user.id]
+    params
   );
 
   return res.json({
@@ -141,12 +162,14 @@ router.get('/:scanId', requireAuth, async (req, res) => {
   const userId = req.user.id;
 
   const result = await query(
-    `SELECT id, status, scan_depth, total_messages_scanned,
+    `SELECT s.id, s.status, s.scan_depth, s.total_messages_scanned,
             storage_used_bytes, storage_quota_bytes, storage_growth_daily_bytes,
             estimated_days_until_full, categories_json, confidence_summary,
-            estimated_bytes_freeable, started_at, completed_at, error_message
-     FROM scans
-     WHERE id = $1 AND user_id = $2`,
+            estimated_bytes_freeable, started_at, completed_at, error_message,
+            s.mailbox_id, cm.google_email AS mailbox_email
+     FROM scans s
+     LEFT JOIN connected_mailboxes cm ON cm.id = s.mailbox_id
+     WHERE s.id = $1 AND s.user_id = $2`,
     [scanId, userId]
   );
 
@@ -181,6 +204,7 @@ router.get('/:scanId', requireAuth, async (req, res) => {
     startedAt: scan.started_at,
     completedAt: scan.completed_at,
     error: scan.error_message || null,
+    mailbox: scan.mailbox_id ? { id: scan.mailbox_id, email: scan.mailbox_email } : null,
   });
 });
 
@@ -221,7 +245,8 @@ function buildCustomQuery(params) {
  */
 router.post('/preview-custom', requireAuth, async (req, res) => {
   try {
-    const tokens = await getOAuthTokens(req.user.id);
+    const mailbox = await resolveMailboxForUser(req.user.id, req.body?.mailboxId || null);
+    const tokens = await getOAuthTokens(req.user.id, mailbox.id);
     const { getGmailClient, countMessagesByQuery } = require('../services/gmailService');
 
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken);
@@ -241,6 +266,12 @@ router.post('/preview-custom', requireAuth, async (req, res) => {
  */
 router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
   const userId = req.user.id;
+  let mailbox;
+  try {
+    mailbox = await resolveMailboxForUser(userId, req.body?.mailboxId || null);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Invalid mailbox.' });
+  }
 
   // Check for already-running scan
   const runningCheck = await query(
@@ -262,14 +293,14 @@ router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
   // Create scan record (store custom query in scan_depth field for reference)
   const scanId = uuidv4();
   await query(
-    `INSERT INTO scans (id, user_id, status, scan_depth) VALUES ($1, $2, 'pending', $3)`,
-    [scanId, userId, 'custom']
+    `INSERT INTO scans (id, user_id, mailbox_id, status, scan_depth) VALUES ($1, $2, $3, 'pending', $4)`,
+    [scanId, userId, mailbox.id, 'custom']
   );
 
   // Enqueue custom scan job
   await query(
     `INSERT INTO jobs (user_id, job_type, payload, status) VALUES ($1, 'CUSTOM_SCAN', $2, 'queued')`,
-    [userId, JSON.stringify({ scanId, customQuery: q })]
+    [userId, JSON.stringify({ scanId, customQuery: q, mailboxId: mailbox.id })]
   );
 
   logger.info('Custom scan queued', { scanId, userId, query: q });
@@ -278,6 +309,7 @@ router.post('/start-custom', requireAuth, scanLimiter, async (req, res) => {
     scanId,
     query: q,
     status: 'pending',
+    mailbox: { id: mailbox.id, email: mailbox.google_email },
     message: 'Custom scan started. Poll /scan/:scanId for results.',
   });
 });

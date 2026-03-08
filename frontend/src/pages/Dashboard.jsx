@@ -16,7 +16,7 @@ import SubscriptionModal from '../components/SubscriptionModal';
 import PaywallModal from '../components/PaywallModal';
 import CustomScanBuilder, { buildQueryPreview } from '../components/CustomScanBuilder';
 import PlaybooksPanel from '../components/PlaybooksPanel';
-import api, { subscriptionApi, cleanupApi, scanApi, automationApi, userApi } from '../api/client';
+import api, { authApi, subscriptionApi, cleanupApi, scanApi, automationApi, userApi } from '../api/client';
 import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
 
 function formatGB(bytes) {
@@ -176,6 +176,10 @@ export default function Dashboard() {
   const [simulatedProgress,     setSimulatedProgress]     = useState(null);
   const [guardian,              setGuardian]              = useState(null);
   const [guardianSaving,        setGuardianSaving]        = useState(false);
+  const [mailboxes,             setMailboxes]             = useState([]);
+  const [mailboxLimit,          setMailboxLimit]          = useState(1);
+  const [selectedMailboxId,     setSelectedMailboxId]     = useState('');
+  const [mailboxBusy,           setMailboxBusy]           = useState(false);
   const profileMenuRef = useRef(null);
 
   const isPro       = Boolean(user?.subscription?.isPro || quota?.plan_type === 'starter' || quota?.plan_type === 'pro' || quota?.is_power_active);
@@ -217,11 +221,29 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
-    loadLatestScan();
+    loadLatestScan(selectedMailboxId || null);
     loadQuota();
     loadPricing();
     loadGuardian();
+    loadMailboxes();
     if (searchParams.get('upgrade') === 'success')       setShowUpgradeBanner(true);
+    if (searchParams.get('mailbox_connected') === 'success') {
+      const mailboxEmail = searchParams.get('mailbox_email');
+      setUiNotice({ type: 'success', message: mailboxEmail ? `Mailbox connected: ${mailboxEmail}` : 'Mailbox connected successfully.' });
+      window.history.replaceState({}, document.title, '/dashboard');
+    }
+    if (searchParams.get('mailbox_connected') === 'limit') {
+      setUiNotice({ type: 'error', message: 'Mailbox limit reached for your plan.' });
+      window.history.replaceState({}, document.title, '/dashboard');
+    }
+    if (searchParams.get('mailbox_connected') === 'consent_required') {
+      setUiNotice({ type: 'error', message: 'Google consent is required. Please connect mailbox again.' });
+      window.history.replaceState({}, document.title, '/dashboard');
+    }
+    if (searchParams.get('mailbox_connected') === 'error') {
+      setUiNotice({ type: 'error', message: 'Failed to connect mailbox.' });
+      window.history.replaceState({}, document.title, '/dashboard');
+    }
     if (searchParams.get('manage') === 'subscription') {
       setShowSubscriptionModal(true);
       window.history.replaceState({}, document.title, '/dashboard');
@@ -256,6 +278,66 @@ export default function Dashboard() {
     }
   }
 
+  async function loadMailboxes(preferredId = null) {
+    try {
+      const res = await userApi.getMailboxes();
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+      const limit = Number(res.data?.limit || 1);
+      setMailboxes(items);
+      setMailboxLimit(limit);
+      const primary = items.find((m) => m.is_primary);
+      const nextSelected = preferredId || selectedMailboxId || primary?.id || items[0]?.id || '';
+      setSelectedMailboxId(nextSelected);
+      if (nextSelected) await loadLatestScan(nextSelected);
+    } catch {
+      setMailboxes([]);
+      setMailboxLimit(1);
+      setSelectedMailboxId('');
+    }
+  }
+
+  async function handleConnectMailbox() {
+    if (mailboxes.length >= mailboxLimit) {
+      setUiNotice({ type: 'error', message: `Mailbox limit reached (${mailboxLimit}). Upgrade to Power for up to 5 mailboxes.` });
+      return;
+    }
+    try {
+      const res = await authApi.getGoogleConnectUrl();
+      const url = res?.data?.url;
+      if (!url) throw new Error('Failed to get OAuth URL.');
+      window.location.href = url;
+    } catch (err) {
+      setUiNotice({ type: 'error', message: err?.response?.data?.error || err.message || 'Unable to start mailbox connection.' });
+    }
+  }
+
+  async function handleSetPrimaryMailbox(mailboxId) {
+    setMailboxBusy(true);
+    try {
+      await userApi.setPrimaryMailbox(mailboxId);
+      await loadMailboxes(mailboxId);
+      setUiNotice({ type: 'success', message: 'Primary mailbox updated.' });
+    } catch (err) {
+      setUiNotice({ type: 'error', message: err?.response?.data?.error || 'Failed to set primary mailbox.' });
+    } finally {
+      setMailboxBusy(false);
+    }
+  }
+
+  async function handleRemoveMailbox(mailboxId) {
+    if (!window.confirm('Disconnect this mailbox?')) return;
+    setMailboxBusy(true);
+    try {
+      await userApi.deleteMailbox(mailboxId);
+      await loadMailboxes();
+      setUiNotice({ type: 'success', message: 'Mailbox disconnected.' });
+    } catch (err) {
+      setUiNotice({ type: 'error', message: err?.response?.data?.error || 'Failed to disconnect mailbox.' });
+    } finally {
+      setMailboxBusy(false);
+    }
+  }
+
   async function updateGuardian(patch) {
     if (!guardian) return;
     setGuardianSaving(true);
@@ -283,7 +365,7 @@ export default function Dashboard() {
     setTaskNotice(null);
     setUiNotice(null);
     setCustomScanError('');
-    startScan(isPro ? 'all' : '12months');
+    startScan(isPro ? 'all' : '12months', selectedMailboxId || null);
   }
 
   // ── Custom scan ─────────────────────────────────────────────────────────────
@@ -300,7 +382,7 @@ export default function Dashboard() {
 
     // ── Layer 1: updated useScan.js deployed ──────────────────────────────────
     if (typeof startCustomScan === 'function') {
-      startCustomScan(params);
+      startCustomScan({ ...params, mailboxId: selectedMailboxId || null });
       return;
     }
 
@@ -315,15 +397,15 @@ export default function Dashboard() {
       let scanId;
       try {
         const res = typeof scanApi?.startCustomScan === 'function'
-          ? await scanApi.startCustomScan(params)
-          : await api.post('/scan/custom', params);
+          ? await scanApi.startCustomScan({ ...params, mailboxId: selectedMailboxId || null })
+          : await api.post('/scan/start-custom', { ...params, mailboxId: selectedMailboxId || null });
         scanId = res.data.scanId;
       } catch (initErr) {
         // Surface the actual HTTP error message from the backend
         const msg = initErr?.response?.data?.error || initErr?.message || 'Custom scan failed to start.';
         const status = initErr?.response?.status;
         const hint = status === 404
-          ? ' - Backend route /scan/custom not found. Deploy backend/src/routes/scan.js to Render.'
+          ? ' - Backend route /scan/start-custom not found. Deploy backend/src/routes/scan.js to Render.'
           : status === 409
           ? ' - A scan is already running. Wait for it to finish.'
           : status === 400
@@ -358,7 +440,7 @@ export default function Dashboard() {
 
       // Done - reload latest scan so UI reflects results
       setCustomScanError('');
-      await loadLatestScan();
+      await loadLatestScan(selectedMailboxId || null);
 
     } catch (err) {
       if (pollTimer) clearInterval(pollTimer);
@@ -422,6 +504,7 @@ export default function Dashboard() {
         cleanupMode:    cleanupPayload.cleanupMode || 'ids',
         customQuery:    cleanupPayload.customQuery || undefined,
         expectedMessageCount: cleanupPayload.messageCount || 0,
+        mailboxId:      selectedMailboxId || null,
       });
 
       if (result?.queued) {
@@ -463,7 +546,7 @@ export default function Dashboard() {
       // If the client timed out, backend may still complete cleanup.
       if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
         setTimeout(async () => {
-          await loadLatestScan();
+          await loadLatestScan(selectedMailboxId || null);
           setHistoryKey(k => k + 1);
         }, 4000);
       }
@@ -534,7 +617,7 @@ export default function Dashboard() {
       await undoCleanup(actionId);
       setUndoAction(null);
       setHistoryKey(k => k + 1);
-      await loadLatestScan();
+      await loadLatestScan(selectedMailboxId || null);
     } catch (err) {
       const msg = err?.message || 'Undo failed.';
       if (isConflictMessage(msg)) {
@@ -548,7 +631,7 @@ export default function Dashboard() {
       if (/timeout|ECONNABORTED|Network Error/i.test(msg)) {
         setTimeout(async () => {
           setHistoryKey(k => k + 1);
-          await loadLatestScan();
+          await loadLatestScan(selectedMailboxId || null);
         }, 5000);
         return;
       }
@@ -557,6 +640,7 @@ export default function Dashboard() {
   }
 
   const categories      = scan?.categories?.filter(c => c.messageCount > 0) || [];
+  const selectedMailbox = mailboxes.find((m) => m.id === selectedMailboxId) || mailboxes.find((m) => m.is_primary) || null;
   const totalFreeableGB = scan?.estimatedFreeableGB || 0;
   const emailsFound = Number(scan?.progress?.messagesScanned || 0);
   const promotionsCount = Number(categories.find(c => c.key?.includes('promotions'))?.messageCount || 0);
@@ -683,6 +767,61 @@ export default function Dashboard() {
             onQuickScan={handleQuickScan}
             onCustomScan={() => setShowCustomScan(true)}
           />
+        </div>
+
+        <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Connected mailboxes</p>
+              <p className="text-xs text-gray-500 mt-1">{mailboxes.length} / {mailboxLimit} connected</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedMailboxId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedMailboxId(nextId);
+                  loadLatestScan(nextId || null);
+                }}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm min-w-[240px]"
+              >
+                {mailboxes.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.google_email}{m.is_primary ? ' (Primary)' : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleConnectMailbox}
+                disabled={mailboxBusy || mailboxes.length >= mailboxLimit}
+                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
+              >
+                Connect mailbox
+              </button>
+            </div>
+          </div>
+          {selectedMailbox && (
+            <div className="mt-3 flex items-center gap-2 text-xs">
+              {!selectedMailbox.is_primary && (
+                <button
+                  onClick={() => handleSetPrimaryMailbox(selectedMailbox.id)}
+                  disabled={mailboxBusy}
+                  className="px-2.5 py-1.5 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Set as primary
+                </button>
+              )}
+              {mailboxes.length > 1 && (
+                <button
+                  onClick={() => handleRemoveMailbox(selectedMailbox.id)}
+                  disabled={mailboxBusy}
+                  className="px-2.5 py-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                >
+                  Disconnect selected
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {quota && (
@@ -1086,7 +1225,7 @@ export default function Dashboard() {
         <div className="mt-8" id="cleanup-history">
           <CleanupHistory
             key={historyKey}
-            onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(); }}
+            onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(selectedMailboxId || null); }}
             onStateChange={(items) => {
               const next = new Set((items || [])
                 .filter(action => action.status === 'pending')

@@ -12,12 +12,15 @@ const { encrypt, decrypt, hashToken } = require('../utils/encryption');
 const { createAuthenticatedClient }   = require('../config/google');
 const { generateAccessToken, generateRefreshToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
+const { ensurePrimaryMailbox } = require('./mailboxService');
 
 // ─── OAuth tokens (Google) ─────────────────────────────────────────────────
 
 async function storeOAuthTokens(userId, tokens) {
   const encryptedRefresh = encrypt(tokens.refresh_token);
   const tokenExpiry = new Date(tokens.expiry_date || Date.now() + 3600 * 1000);
+  const encryptedAccess = encrypt(tokens.access_token);
+  const scopes = tokens.scope ? tokens.scope.split(' ') : [];
 
   await query(
     `INSERT INTO oauth_tokens (user_id, access_token, refresh_token, token_expiry, scopes)
@@ -30,15 +33,93 @@ async function storeOAuthTokens(userId, tokens) {
          updated_at = NOW()`,
     [
       userId,
-      encrypt(tokens.access_token),
+      encryptedAccess,
       encryptedRefresh,
       tokenExpiry,
-      tokens.scope ? tokens.scope.split(' ') : [],
+      scopes,
     ]
   );
+
+  try {
+    const userRes = await query(
+      `SELECT google_id, email
+       FROM users
+       WHERE id = $1`,
+      [userId]
+    );
+    const user = userRes.rows[0];
+    if (user?.google_id && user?.email) {
+      await query(
+        `INSERT INTO connected_mailboxes
+           (user_id, google_account_id, google_email, access_token, refresh_token, token_expiry, scopes, is_primary, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, 'active')
+         ON CONFLICT (user_id, google_account_id) DO UPDATE
+           SET google_email = EXCLUDED.google_email,
+               access_token = EXCLUDED.access_token,
+               refresh_token = EXCLUDED.refresh_token,
+               token_expiry = EXCLUDED.token_expiry,
+               scopes = EXCLUDED.scopes,
+               is_primary = TRUE,
+               status = 'active',
+               updated_at = NOW()`,
+        [userId, user.google_id, user.email.toLowerCase(), encryptedAccess, encryptedRefresh, tokenExpiry, scopes]
+      );
+      await query(
+        `UPDATE connected_mailboxes
+         SET is_primary = CASE WHEN google_account_id = $2 THEN TRUE ELSE FALSE END,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId, user.google_id]
+      );
+    }
+  } catch (err) {
+    logger.warn('Failed to sync primary mailbox row from oauth_tokens', { userId, error: err.message });
+  }
 }
 
-async function getOAuthTokens(userId) {
+async function getOAuthTokens(userId, mailboxId = null) {
+  await ensurePrimaryMailbox(userId);
+
+  let mailboxResult;
+  if (mailboxId) {
+    mailboxResult = await query(
+      `SELECT id, google_email, access_token, refresh_token, token_expiry
+       FROM connected_mailboxes
+       WHERE id = $1 AND user_id = $2 AND status = 'active'`,
+      [mailboxId, userId]
+    );
+  } else {
+    mailboxResult = await query(
+      `SELECT id, google_email, access_token, refresh_token, token_expiry
+       FROM connected_mailboxes
+       WHERE user_id = $1 AND status = 'active'
+       ORDER BY is_primary DESC, created_at ASC
+       LIMIT 1`,
+      [userId]
+    );
+  }
+
+  if (mailboxResult.rows[0]) {
+    const row = mailboxResult.rows[0];
+    let accessToken = decrypt(row.access_token);
+    const refreshToken = decrypt(row.refresh_token);
+    const expiry = new Date(row.token_expiry);
+
+    if (expiry.getTime() - Date.now() < 5 * 60 * 1000) {
+      logger.info('Mailbox access token expiring, refreshing...', { userId, mailboxId: row.id });
+      const newTokens = await refreshAccessToken(userId, refreshToken, row.id);
+      accessToken = newTokens.access_token;
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      tokenExpiry: expiry.getTime(),
+      mailboxId: row.id,
+      mailboxEmail: row.google_email,
+    };
+  }
+
   const result = await query(
     `SELECT access_token, refresh_token, token_expiry
      FROM oauth_tokens WHERE user_id = $1`,
@@ -61,10 +142,10 @@ async function getOAuthTokens(userId) {
     accessToken = newTokens.access_token;
   }
 
-  return { accessToken, refreshToken, tokenExpiry: expiry.getTime() };
+  return { accessToken, refreshToken, tokenExpiry: expiry.getTime(), mailboxId: null, mailboxEmail: null };
 }
 
-async function refreshAccessToken(userId, refreshToken) {
+async function refreshAccessToken(userId, refreshToken, mailboxId = null) {
   const client = createAuthenticatedClient('', refreshToken);
   let newTokens;
   try {
@@ -82,7 +163,45 @@ async function refreshAccessToken(userId, refreshToken) {
     scope:         newTokens.scope,
   };
 
-  await storeOAuthTokens(userId, tokenToStore);
+  if (mailboxId) {
+    const encryptedAccess = encrypt(tokenToStore.access_token);
+    const encryptedRefresh = encrypt(tokenToStore.refresh_token);
+    const tokenExpiry = new Date(tokenToStore.expiry_date || Date.now() + 3600 * 1000);
+    const scopes = tokenToStore.scope ? tokenToStore.scope.split(' ') : [];
+
+    await query(
+      `UPDATE connected_mailboxes
+       SET access_token = $2,
+           refresh_token = $3,
+           token_expiry = $4,
+           scopes = $5,
+           updated_at = NOW()
+       WHERE id = $1 AND user_id = $6`,
+      [mailboxId, encryptedAccess, encryptedRefresh, tokenExpiry, scopes, userId]
+    );
+
+    const primary = await query(
+      `SELECT is_primary
+       FROM connected_mailboxes
+       WHERE id = $1 AND user_id = $2`,
+      [mailboxId, userId]
+    );
+    if (primary.rows[0]?.is_primary) {
+      await query(
+        `INSERT INTO oauth_tokens (user_id, access_token, refresh_token, token_expiry, scopes)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id) DO UPDATE
+           SET access_token = $2,
+               refresh_token = $3,
+               token_expiry = $4,
+               scopes = $5,
+               updated_at = NOW()`,
+        [userId, encryptedAccess, encryptedRefresh, tokenExpiry, scopes]
+      );
+    }
+  } else {
+    await storeOAuthTokens(userId, tokenToStore);
+  }
   return newTokens;
 }
 
