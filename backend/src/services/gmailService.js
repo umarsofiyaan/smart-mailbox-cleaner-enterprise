@@ -4,7 +4,9 @@ const { google } = require('googleapis');
 const { createAuthenticatedClient } = require('../config/google');
 const logger = require('../utils/logger');
 
-const GMAIL_RATE_LIMIT_DELAY = parseInt(process.env.GMAIL_RATE_LIMIT_DELAY_MS) || 100;
+const GMAIL_RATE_LIMIT_DELAY = parseInt(process.env.GMAIL_RATE_LIMIT_DELAY_MS, 10) || 50;
+const QUERY_PAGE_DELAY_MS = parseInt(process.env.GMAIL_QUERY_PAGE_DELAY_MS, 10) || 50;
+const TRASH_BATCH_DELAY_MS = parseInt(process.env.GMAIL_TRASH_BATCH_DELAY_MS, 10) || 250;
 
 /**
  * Exponential backoff for Gmail API rate limits (429) and server errors (5xx).
@@ -132,7 +134,7 @@ async function listMessages(gmail, q, pageToken = null, maxResults = 500) {
 async function collectMessageIdsByQuery(gmail, q, options = {}) {
   const {
     maxMessages = Infinity,
-    pageDelayMs = 200,
+    pageDelayMs = QUERY_PAGE_DELAY_MS,
   } = options;
 
   const ids = [];
@@ -235,7 +237,7 @@ async function batchGetMessageMetadata(gmail, messageIds) {
  * @param {string[]} messageIds
  */
 async function batchTrashMessages(gmail, messageIds, onProgress = null) {
-  const BATCH_SIZE = 500;
+  const BATCH_SIZE = 1000;
   const results = { success: [], failed: [] };
   const total = messageIds.length;
 
@@ -283,7 +285,7 @@ async function batchTrashMessages(gmail, messageIds, onProgress = null) {
     }
 
     if (i + BATCH_SIZE < messageIds.length) {
-      await sleep(1000);
+      await sleep(TRASH_BATCH_DELAY_MS);
     }
 
     if (typeof onProgress === 'function') {

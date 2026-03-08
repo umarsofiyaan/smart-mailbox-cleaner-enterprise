@@ -11,6 +11,8 @@ const {
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
 
+const LABEL_SNAPSHOT_LIMIT = parseInt(process.env.CLEANUP_LABEL_SNAPSHOT_LIMIT, 10) || 2000;
+
 async function snapshotOriginalLabels(actionId, metadata, successfulIds) {
   if (!metadata?.length || !successfulIds?.length) return;
 
@@ -89,11 +91,21 @@ async function createCleanupAction(
   return actionResult.rows[0];
 }
 
-async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, tokenExpiry = null, onProgress = null) {
+async function runCleanupAction(
+  actionId,
+  messageIds,
+  estimatedBytes,
+  tokens,
+  tokenExpiry = null,
+  onProgress = null,
+  options = {}
+) {
   if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
 
   const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokenExpiry);
-  const metadata = await batchGetMessageMetadata(gmail, messageIds);
+  const shouldSnapshotLabels = options.snapshotLabels !== false;
+  const shouldLoadMetadata = shouldSnapshotLabels && messageIds.length <= LABEL_SNAPSHOT_LIMIT;
+  const metadata = shouldLoadMetadata ? await batchGetMessageMetadata(gmail, messageIds) : [];
   const result = await batchTrashMessages(gmail, messageIds, async (progress) => {
     await query(
       `UPDATE cleanup_actions
@@ -114,15 +126,19 @@ async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, to
     [result.success, result.success.length, actionId]
   );
 
-  await snapshotOriginalLabels(actionId, metadata, result.success);
+  if (shouldLoadMetadata) {
+    await snapshotOriginalLabels(actionId, metadata, result.success);
+  }
 
   const successfulSet = new Set(result.success);
-  const conversationCount = new Set(
-    metadata
-      .filter((m) => successfulSet.has(m.id))
-      .map((m) => m.threadId)
-      .filter(Boolean)
-  ).size;
+  const conversationCount = shouldLoadMetadata
+    ? new Set(
+        metadata
+          .filter((m) => successfulSet.has(m.id))
+          .map((m) => m.threadId)
+          .filter(Boolean)
+      ).size
+    : 0;
 
   const undoExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -134,6 +150,7 @@ async function runCleanupAction(actionId, messageIds, estimatedBytes, tokens, to
     failedIds: result.failed,
     bytesFreed: estimatedBytes,
     undoExpiresAt,
+    usedFastMode: !shouldLoadMetadata,
   };
 }
 
@@ -144,7 +161,13 @@ async function executeCleanup(userId, scanId, category, messageIds, estimatedByt
   const action = await createCleanupAction(userId, scanId, category, estimatedBytes, messageIds.length);
 
   try {
-    const result = await runCleanupAction(action.id, messageIds, estimatedBytes, tokens, tokens.tokenExpiry);
+    const result = await runCleanupAction(
+      action.id,
+      messageIds,
+      estimatedBytes,
+      tokens,
+      tokens.tokenExpiry
+    );
     logger.info('Cleanup complete', { actionId: result.actionId, successCount: result.successCount });
     return result;
   } catch (err) {

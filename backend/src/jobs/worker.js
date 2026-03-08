@@ -29,6 +29,7 @@ const logger          = require('../utils/logger');
 const POLL_INTERVAL_MS = 10000;
 const CRON_INTERVAL_MS = 60000;
 const MAX_CONCURRENT_JOBS = 3;
+const FAST_CLEANUP_THRESHOLD = parseInt(process.env.FAST_CLEANUP_THRESHOLD, 10) || 2000;
 
 let activeJobs = 0;
 let isRunning  = false;
@@ -198,6 +199,9 @@ async function executeCleanupJob(job) {
             totalCount,
           },
         });
+      },
+      {
+        snapshotLabels: effectiveIds.length <= FAST_CLEANUP_THRESHOLD,
       }
     );
     const trashAfterEstimate = await getTrashEstimate(gmail);
@@ -221,6 +225,7 @@ async function executeCleanupJob(job) {
         failedCount: result.failedCount,
         bytesFreed: result.bytesFreed,
         undoExpiresAt: result.undoExpiresAt,
+        usedFastMode: !!result.usedFastMode,
         trashBeforeEstimate,
         trashAfterEstimate,
         estimatedNewInTrash,
