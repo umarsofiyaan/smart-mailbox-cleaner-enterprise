@@ -130,6 +130,7 @@ async function executeCleanupJob(job) {
   }
 
   try {
+    await patchJobPayload(job.id, { progress: { stage: 'checking_quota' } });
     const requestedCount = cleanupMode === 'query'
       ? Math.max(1, Number(job.payload?.expectedMessageCount) || 1)
       : Math.max(1, Array.isArray(messageIds) ? messageIds.length : 1);
@@ -142,8 +143,10 @@ async function executeCleanupJob(job) {
       throw new Error(quotaCheck.reason);
     }
 
+    await patchJobPayload(job.id, { progress: { stage: 'connecting_mailbox' } });
     const tokens = await getOAuthTokens(job.user_id, job.payload?.mailboxId || null);
     const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+    await patchJobPayload(job.id, { progress: { stage: 'measuring_trash' } });
     const trashBeforeEstimate = await getTrashEstimate(gmail);
     const trashConversationsBefore = await getTrashConversationEstimate(gmail);
     let effectiveIds = [];
@@ -160,6 +163,7 @@ async function executeCleanupJob(job) {
     }
 
     // Guard against repeated IDs from broad/paginated matches.
+    await patchJobPayload(job.id, { progress: { stage: 'preparing_cleanup' } });
     effectiveIds = Array.from(new Set(effectiveIds));
 
     await patchJobPayload(job.id, {
@@ -183,6 +187,7 @@ async function executeCleanupJob(job) {
       throw new Error('No matching emails found for cleanup.');
     }
 
+    const willUseFastMode = effectiveIds.length > FAST_CLEANUP_THRESHOLD;
     const result = await runCleanupAction(
       actionId,
       effectiveIds,
@@ -204,6 +209,12 @@ async function executeCleanupJob(job) {
         snapshotLabels: effectiveIds.length <= FAST_CLEANUP_THRESHOLD,
       }
     );
+    await patchJobPayload(job.id, {
+      progress: {
+        stage: willUseFastMode ? 'finalizing_cleanup' : 'saving_undo_snapshot',
+        matchedCount: effectiveIds.length,
+      },
+    });
     const trashAfterEstimate = await getTrashEstimate(gmail);
     const trashConversationsAfter = await getTrashConversationEstimate(gmail);
     const estimatedNewInTrash = Math.max(0, trashAfterEstimate - trashBeforeEstimate);

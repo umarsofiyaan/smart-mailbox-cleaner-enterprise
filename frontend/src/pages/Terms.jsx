@@ -1,6 +1,7 @@
 // src/pages/Terms.jsx
 // Terms of Service - required for Google OAuth verification.
 import { Link } from 'react-router-dom';
+import SEOHead from '../components/SEOHead';
 
 export default function Terms() {
   const lastUpdated = 'March 6, 2026';
@@ -10,6 +11,7 @@ export default function Terms() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <SEOHead title="Terms of Service" description="Read the Smart Mailbox Cleaner terms of service for Gmail cleanup actions, undo windows, paid plans, acceptable use, and service limitations." path="/terms-of-service" />
       {/* Header */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-3xl mx-auto px-6 py-5 flex items-center gap-3">
@@ -244,4 +246,6 @@ function H3({ children }) {
 function P({ children }) {
   return <p className="text-gray-600 text-sm leading-relaxed mb-3">{children}</p>;
 }
+
+
 

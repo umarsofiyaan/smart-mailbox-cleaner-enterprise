@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth.jsx';
+import SEOHead from '../components/SEOHead';
 
 export default function Login() {
   const { user, loading } = useAuth();
@@ -50,6 +51,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50 flex items-center justify-center p-4">
+      <SEOHead title="Login" description="Sign in to Smart Mailbox Cleaner with Google to scan Gmail metadata, review cleanup suggestions, and manage undo history." path="/login" robots="noindex,nofollow" />
       <div className="w-full max-w-md">
 
         {/* Logo */}
@@ -153,3 +155,5 @@ export default function Login() {
     </div>
   );
 }
+
+

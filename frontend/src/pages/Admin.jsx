@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
 import api from '../api/client';
+import SEOHead from '../components/SEOHead';
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B';
@@ -612,6 +613,7 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <SEOHead title="Admin" description="Private admin area for Smart Mailbox Cleaner." path="/admin" robots="noindex,nofollow" />
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -736,3 +738,5 @@ export default function Admin() {
     </div>
   );
 }
+
+

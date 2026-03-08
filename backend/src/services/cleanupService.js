@@ -274,6 +274,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
       const actionId = payload.actionId;
       if (!actionId || jobMetaByAction.has(actionId)) continue;
       const result = payload.result || {};
+      const progress = payload.progress || {};
       jobMetaByAction.set(actionId, {
         processedCount: Number(result.processedCount || 0),
         movedCount: Number(result.successCount || 0),
@@ -286,6 +287,12 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
         trashConversationsBefore: Number(result.trashConversationsBefore || 0),
         trashConversationsAfter: Number(result.trashConversationsAfter || 0),
         estimatedNewConversationsInTrash: Number(result.estimatedNewConversationsInTrash || 0),
+        progressStage: progress.stage || null,
+        progressMatchedCount: Number(progress.matchedCount || 0),
+        progressMovedCount: Number(progress.movedCount || 0),
+        progressFailedCount: Number(progress.failedCount || 0),
+        progressTotalCount: Number(progress.totalCount || 0),
+        usedFastMode: !!result.usedFastMode,
       });
     }
   }

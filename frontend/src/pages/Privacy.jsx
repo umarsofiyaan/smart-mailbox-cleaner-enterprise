@@ -2,6 +2,7 @@
 // Privacy Policy - required for Google OAuth verification.
 // Covers: Gmail API usage, data collection, retention, third parties.
 import { Link } from 'react-router-dom';
+import SEOHead from '../components/SEOHead';
 
 export default function Privacy() {
   const lastUpdated = 'March 6, 2026';
@@ -11,6 +12,7 @@ export default function Privacy() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <SEOHead title="Privacy Policy" description="Read the Smart Mailbox Cleaner privacy policy, including how Gmail metadata is used, what is stored, and how cleanup and undo data are handled." path="/privacy-policy" />
       {/* Header */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-3xl mx-auto px-6 py-5 flex items-center gap-3">
@@ -293,3 +295,5 @@ function H3({ children }) {
 function P({ children }) {
   return <p className="text-gray-600 text-sm leading-relaxed mb-3">{children}</p>;
 }
+
+

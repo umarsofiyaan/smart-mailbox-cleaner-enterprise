@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { authApi } from '../api/client';
+import SEOHead from '../components/SEOHead';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -45,6 +46,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white">
+      <SEOHead title="Clean Gmail Storage Safely" description="Free up Gmail storage by removing large attachments, old promotions, and inbox clutter safely. Undo any cleanup within 30 days." path="/home" jsonLd={{ "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Smart Mailbox Cleaner", applicationCategory: "BusinessApplication", operatingSystem: "Web", offers: { "@type": "Offer", price: "0", priceCurrency: "USD" }, description: "A Gmail cleanup app that helps users free up storage safely without reading email content.", url: "https://smart-mailbox-cleaner.umarsofiyaan.shop/home" }} />
 
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <nav className="border-b border-gray-100 px-6 py-4">
@@ -275,3 +277,5 @@ export default function Home() {
     </div>
   );
 }
+
+

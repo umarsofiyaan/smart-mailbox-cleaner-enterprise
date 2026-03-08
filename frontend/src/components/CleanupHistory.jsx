@@ -50,6 +50,81 @@ const CATEGORY_ICONS = {
 
 const PAGE_SIZE = 5;
 
+const CLEANUP_STAGE_META = {
+  checking_quota: {
+    title: 'Checking cleanup limits',
+    detail: 'We are validating your available cleanup credits before the job starts.',
+  },
+  connecting_mailbox: {
+    title: 'Connecting to Gmail',
+    detail: 'We are loading the mailbox session needed to run the cleanup safely.',
+  },
+  measuring_trash: {
+    title: 'Measuring current Trash',
+    detail: 'We are checking Trash totals so history can show the cleanup impact.',
+  },
+  resolving_ids: {
+    title: 'Finding matching emails',
+    detail: 'We are expanding your filter into the exact Gmail message IDs to clean.',
+  },
+  preparing_cleanup: {
+    title: 'Preparing cleanup batches',
+    detail: 'We are deduplicating results and splitting the cleanup into Gmail-safe batches.',
+  },
+  moving_to_trash: {
+    title: 'Moving emails to Trash',
+    detail: 'Deletion is now running in Gmail batch operations.',
+  },
+  saving_undo_snapshot: {
+    title: 'Saving undo data',
+    detail: 'We are recording original labels so Undo can restore messages more precisely.',
+  },
+  finalizing_cleanup: {
+    title: 'Finalizing cleanup',
+    detail: 'We are saving the cleanup summary and refreshing the final Gmail totals.',
+  },
+  done: {
+    title: 'Cleanup complete',
+    detail: 'The job finished successfully.',
+  },
+};
+
+function getCleanupStageMessage(action) {
+  const meta = CLEANUP_STAGE_META[action.progressStage] || {
+    title: 'Processing cleanup',
+    detail: 'The cleanup job is still running in the background.',
+  };
+
+  if (action.progressStage === 'moving_to_trash') {
+    const moved = Number(action.progressMovedCount || action.messageCount || 0);
+    const total = Number(action.progressTotalCount || action.progressMatchedCount || action.messageCount || 0);
+    const failed = Number(action.progressFailedCount || 0);
+    const parts = [
+      `${moved.toLocaleString()} of ${Math.max(moved, total).toLocaleString()} moved`,
+    ];
+    if (failed > 0) parts.push(`${failed.toLocaleString()} failed`);
+    return {
+      title: meta.title,
+      detail: `${parts.join(' - ')}. ${meta.detail}`,
+      percent: total > 0 ? Math.min(100, Math.round((moved / total) * 100)) : null,
+    };
+  }
+
+  if (action.progressMatchedCount > 0) {
+    return {
+      title: meta.title,
+      detail: `${action.progressMatchedCount.toLocaleString()} emails identified so far. ${meta.detail}`,
+      percent: null,
+    };
+  }
+
+  return {
+    title: meta.title,
+    detail: meta.detail,
+    percent: null,
+  };
+}
+
 function HistoryRow({ action, onUndo, undoingId }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const canUndo = action.canUndo;
@@ -64,6 +139,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const estimatedNewConversationsInTrash = action.estimatedNewConversationsInTrash || 0;
   const sourceQuery = action.sourceQuery || '';
   const timeLeft = canUndo ? timeUntilExpiry(action.expiresAt) : null;
+  const pendingStage = isPending ? getCleanupStageMessage(action) : null;
 
   return (
     <div className="flex items-center gap-4 py-4 border-b border-gray-50 last:border-0">
@@ -103,9 +179,21 @@ function HistoryRow({ action, onUndo, undoingId }) {
           </p>
         )}
         {isPending && (
-          <p className="text-xs text-indigo-600 mt-0.5 font-medium">
-            {`${(action.messageCount || 0).toLocaleString()} moved so far. Processing in background...`}
-          </p>
+          <div className="mt-1.5">
+            <p className="text-xs text-indigo-700 font-semibold">{pendingStage.title}</p>
+            <p className="text-xs text-indigo-600 mt-0.5">{pendingStage.detail}</p>
+            {typeof pendingStage.percent === 'number' && (
+              <div className="mt-2">
+                <div className="w-full h-2 bg-indigo-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-600 transition-all duration-500"
+                    style={{ width: `${pendingStage.percent}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-indigo-500 mt-1">{pendingStage.percent}% complete</p>
+              </div>
+            )}
+          </div>
         )}
         {isFailed && (
           <p className="text-xs text-red-600 mt-0.5 font-medium">
@@ -200,7 +288,7 @@ export default function CleanupHistory({ onUndoSuccess, onStateChange }) {
     if (!hasPending) return undefined;
     const timer = setInterval(() => {
       load();
-    }, 15000);
+    }, 4000);
     return () => clearInterval(timer);
   }, [history, load]);
 

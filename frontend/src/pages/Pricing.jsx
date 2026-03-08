@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { subscriptionApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
+import SEOHead from '../components/SEOHead';
 
 function fmt(price, currency = 'USD') {
   const value = Number(price || 0);
@@ -50,6 +51,7 @@ export default function Pricing() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      <SEOHead title="Pricing" description="Compare Starter, Pro, and Power plans for Smart Mailbox Cleaner. Unlock more cleanup credits, multi-mailbox support, and unlimited cleanup." path="/pricing" jsonLd={{ "@context": "https://schema.org", "@type": "OfferCatalog", name: "Smart Mailbox Cleaner Pricing", url: "https://smart-mailbox-cleaner.umarsofiyaan.shop/pricing" }} />
       <nav className="border-b border-gray-100 bg-white px-6 py-4 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate(user ? '/dashboard' : '/')} className="text-sm text-gray-600 hover:text-gray-900">Back</button>
@@ -95,3 +97,5 @@ export default function Pricing() {
     </div>
   );
 }
+
+

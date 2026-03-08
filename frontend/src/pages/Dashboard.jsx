@@ -16,6 +16,7 @@ import SubscriptionModal from '../components/SubscriptionModal';
 import PaywallModal from '../components/PaywallModal';
 import CustomScanBuilder, { buildQueryPreview } from '../components/CustomScanBuilder';
 import PlaybooksPanel from '../components/PlaybooksPanel';
+import SEOHead from '../components/SEOHead';
 import api, { authApi, subscriptionApi, cleanupApi, scanApi, automationApi, userApi } from '../api/client';
 import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
 
@@ -169,6 +170,7 @@ export default function Dashboard() {
   const [taskNotice,            setTaskNotice]            = useState(null);
   const [uiNotice,              setUiNotice]              = useState(null);
   const [pendingCleanupCategories, setPendingCleanupCategories] = useState(new Set());
+  const [activeCleanupSummary,  setActiveCleanupSummary]  = useState(null);
   const [paywallOpen,           setPaywallOpen]           = useState(false);
   const [paywallPayload,        setPaywallPayload]        = useState(null);
   const [pricing,               setPricing]               = useState(null);
@@ -194,6 +196,24 @@ export default function Dashboard() {
     const n = Number(count) || 0;
     if (n <= 0) return 1;
     return Math.max(1, Math.ceil(n / 1500));
+  };
+
+  const describeCleanupStage = (action) => {
+    const stage = action?.progressStage || '';
+    if (stage === 'moving_to_trash') {
+      const moved = Number(action?.progressMovedCount || 0);
+      const total = Number(action?.progressTotalCount || action?.progressMatchedCount || 0);
+      if (total > 0) return `Moving ${moved.toLocaleString()} / ${total.toLocaleString()} to Trash`;
+      return 'Moving emails to Trash';
+    }
+    if (stage === 'resolving_ids') return 'Finding matching emails';
+    if (stage === 'checking_quota') return 'Checking cleanup limits';
+    if (stage === 'connecting_mailbox') return 'Connecting to Gmail';
+    if (stage === 'measuring_trash') return 'Measuring current Trash';
+    if (stage === 'preparing_cleanup') return 'Preparing cleanup batches';
+    if (stage === 'saving_undo_snapshot') return 'Saving undo data';
+    if (stage === 'finalizing_cleanup') return 'Finalizing cleanup';
+    return 'Processing cleanup';
   };
 
   const isConflictMessage = (msg = '') =>
@@ -671,6 +691,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <SEOHead title="Dashboard" description="Private dashboard for Smart Mailbox Cleaner users." path="/dashboard" robots="noindex,nofollow" />
 
       {/* ── Nav ────────────────────────────────────────────────────────────── */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-40">
@@ -1236,10 +1257,17 @@ export default function Dashboard() {
             key={historyKey}
             onUndoSuccess={() => { setHistoryKey(k => k + 1); loadLatestScan(selectedMailboxId || null); }}
             onStateChange={(items) => {
-              const next = new Set((items || [])
-                .filter(action => action.status === 'pending')
-                .map(action => action.category));
+              const pendingItems = (items || []).filter(action => action.status === 'pending');
+              const next = new Set(pendingItems.map(action => action.category));
               setPendingCleanupCategories(next);
+              if (pendingItems[0]) {
+                setActiveCleanupSummary({
+                  count: pendingItems.length,
+                  label: describeCleanupStage(pendingItems[0]),
+                });
+              } else {
+                setActiveCleanupSummary(null);
+              }
             }}
           />
         </div>
@@ -1294,13 +1322,20 @@ export default function Dashboard() {
         <div className="fixed bottom-4 left-4 z-50">
           <button
             onClick={() => scrollToSection('cleanup-history')}
-            className="bg-indigo-600 text-white shadow-lg rounded-full px-4 py-2 text-sm font-semibold hover:bg-indigo-700"
+            className="bg-indigo-600 text-white shadow-lg rounded-2xl px-4 py-3 text-left hover:bg-indigo-700"
           >
-            {pendingCleanupCategories.size} cleanup{pendingCleanupCategories.size > 1 ? 's' : ''} running - View
+            <p className="text-sm font-semibold">
+              {pendingCleanupCategories.size} cleanup{pendingCleanupCategories.size > 1 ? 's' : ''} running
+            </p>
+            <p className="text-xs text-indigo-100 mt-0.5">
+              {activeCleanupSummary?.label || 'Working in the background'} - View
+            </p>
           </button>
         </div>
       )}
     </div>
   );
 }
+
+
 
