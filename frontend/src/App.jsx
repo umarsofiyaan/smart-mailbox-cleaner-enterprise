@@ -1,12 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx';
-import Home     from './pages/Home';
-import Login    from './pages/Login';
+import Home from './pages/Home';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Pricing  from './pages/Pricing';
-import Admin    from './pages/Admin';
-import Privacy  from './pages/Privacy';
-import Terms    from './pages/Terms';
+import Pricing from './pages/Pricing';
+import Admin from './pages/Admin';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
 import SiteFooter from './components/SiteFooter';
 
 function ProtectedRoute({ children }) {
@@ -32,20 +32,20 @@ function AdminRoute({ children }) {
 
 function ExtensionAuth() {
   const params = new URLSearchParams(window.location.search);
-  const accessToken  = params.get('access_token');
-  const refreshToken = params.get('refresh_token');
-
-  if (accessToken) {
-    localStorage.setItem('access_token', accessToken);
-    if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
-    window.close();
-  }
+  const code = params.get('code');
+  const hasError = params.get('error');
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <p className="text-2xl mb-2">OK</p>
-        <p className="font-semibold text-gray-900">Connected! You can close this tab.</p>
+      <div className="text-center px-6">
+        <p className="text-2xl mb-2">{hasError ? 'Login failed' : 'Finishing sign-in'}</p>
+        <p className="font-semibold text-gray-900">
+          {hasError
+            ? 'Authentication could not be completed. Please return to the extension and try again.'
+            : code
+              ? 'You can return to the extension. This tab will close automatically if allowed.'
+              : 'Waiting for the extension to complete authentication.'}
+        </p>
       </div>
     </div>
   );
@@ -59,17 +59,17 @@ function AppLayout() {
     <div className="min-h-screen flex flex-col">
       <main className="flex-1">
         <Routes>
-          <Route path="/"                element={<Home />} />
-          <Route path="/home"            element={<Home />} />
-          <Route path="/login"           element={<Login />} />
-          <Route path="/pricing"         element={<Pricing />} />
-          <Route path="/privacy-policy"  element={<Privacy />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/home" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/privacy-policy" element={<Privacy />} />
           <Route path="/terms-of-service" element={<Terms />} />
-          <Route path="/privacy"         element={<Navigate to="/privacy-policy" replace />} />
-          <Route path="/terms"           element={<Navigate to="/terms-of-service" replace />} />
-          <Route path="/extension-auth"  element={<ExtensionAuth />} />
-          <Route path="/dashboard"       element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin"           element={<AdminRoute><Admin /></AdminRoute>} />
+          <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
+          <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
+          <Route path="/extension-auth" element={<ExtensionAuth />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
         </Routes>
       </main>
       {!hideFooter && <SiteFooter />}

@@ -1,11 +1,8 @@
-// background/service_worker.js
 // Chrome Extension background service worker (MV3)
-// Handles: OAuth flow, token storage, token refresh, scan polling
+// Handles OAuth flow, token storage, token refresh, and scan polling.
 
 const API_URL = 'https://api.mailboxcleaner.umarsofiyaan.shop';
 const APP_URL = 'https://app.mailboxcleaner.umarsofiyaan.shop';
-
-// ── Token management ─────────────────────────────────────────
 
 async function getTokens() {
   return new Promise(resolve => {
@@ -29,10 +26,6 @@ async function clearTokens() {
   });
 }
 
-/**
- * Make an authenticated API request.
- * Automatically refreshes access token if expired.
- */
 async function apiRequest(path, options = {}) {
   const { access_token, refresh_token } = await getTokens();
 
@@ -49,13 +42,11 @@ async function apiRequest(path, options = {}) {
     },
   });
 
-  // Token expired — try refresh
   if (response.status === 401) {
     const data = await response.json().catch(() => ({}));
     if (data.code === 'TOKEN_EXPIRED' && refresh_token) {
       const refreshed = await refreshTokens(refresh_token);
       if (refreshed) {
-        // Retry with new token
         return apiRequest(path, options);
       }
     }
@@ -70,9 +61,6 @@ async function apiRequest(path, options = {}) {
   return response.json();
 }
 
-/**
- * Refresh access token using stored refresh token.
- */
 async function refreshTokens(refreshToken) {
   try {
     const response = await fetch(`${API_URL}/auth/refresh`, {
@@ -95,12 +83,6 @@ async function refreshTokens(refreshToken) {
   }
 }
 
-// ── OAuth Flow ────────────────────────────────────────────────
-
-/**
- * Initiate Google OAuth via the backend.
- * Opens auth URL in a new tab, then polls for tokens via the extension-auth page.
- */
 async function initiateOAuth() {
   try {
     const response = await fetch(`${API_URL}/auth/google?state=extension`);
@@ -114,7 +96,20 @@ async function initiateOAuth() {
   }
 }
 
-// ── Message handler from popup ────────────────────────────────
+async function exchangeExtensionCode(code) {
+  const response = await fetch(`${API_URL}/auth/extension/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to exchange extension code');
+  }
+
+  return response.json();
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handle = async () => {
@@ -148,7 +143,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           method: 'POST',
           body: JSON.stringify({ scanDepth: '12months' }),
         });
-        // Store scanId for polling
         await chrome.storage.local.set({ active_scan_id: scanResult.scanId });
         return scanResult;
       }
@@ -180,17 +174,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { success: true };
       }
 
-      case 'TOKENS_RECEIVED': {
-        // Called when extension-auth page passes tokens back
-        const { accessToken, refreshToken } = message;
-        const userData = await fetch(`${API_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }).then(r => r.json()).catch(() => null);
-
-        await setTokens(accessToken, refreshToken, userData);
-        return { success: true };
-      }
-
       default:
         return { error: 'Unknown message type' };
     }
@@ -200,38 +183,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ error: err.message });
   });
 
-  return true; // Keep message channel open for async response
+  return true;
 });
-
-// ── Listen for auth tokens from extension-auth tab ───────────
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (!tab.url) return;
+  if (!tab.url || changeInfo.status !== 'complete') return;
 
   const url = new URL(tab.url);
-  if (
-    changeInfo.status === 'complete' &&
-    url.origin === APP_URL &&
-    url.pathname === '/extension-auth'
-  ) {
-    const accessToken = url.searchParams.get('access_token');
-    const refreshToken = url.searchParams.get('refresh_token');
+  if (url.origin !== APP_URL || url.pathname !== '/extension-auth') return;
 
-    if (accessToken) {
-      // Fetch user info
-      const userData = await fetch(`${API_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }).then(r => r.json()).catch(() => null);
+  const code = url.searchParams.get('code');
+  if (!code) return;
 
-      await setTokens(accessToken, refreshToken, userData);
+  try {
+    const { accessToken, refreshToken } = await exchangeExtensionCode(code);
+    const userData = await fetch(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).then(r => r.json()).catch(() => null);
 
-      // Close the auth tab
-      setTimeout(() => chrome.tabs.remove(tabId), 1500);
-    }
+    await setTokens(accessToken, refreshToken, userData);
+    setTimeout(() => chrome.tabs.remove(tabId), 1500);
+  } catch (err) {
+    console.error('Failed to finish extension auth:', err);
   }
 });
-
-// ── Alarm for token proactive refresh ─────────────────────────
 
 chrome.alarms.create('token_refresh', { periodInMinutes: 10 });
 

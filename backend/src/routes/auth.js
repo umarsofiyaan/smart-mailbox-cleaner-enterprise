@@ -26,6 +26,14 @@ const { sendWelcomeEmail } = require('../services/emailService');
 const { authLimiter } = require('../middleware/security');
 const logger = require('../utils/logger');
 
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET;
+if (!OAUTH_STATE_SECRET) {
+  throw new Error('OAUTH_STATE_SECRET (or JWT_ACCESS_SECRET) must be set.');
+}
+
+const EXTENSION_CODE_TTL_MS = 2 * 60 * 1000;
+const pendingExtensionSessions = new Map();
+
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
@@ -66,7 +74,6 @@ function base64UrlDecode(str) {
 }
 
 function createOAuthState(mode, nonce, userId = null) {
-  const secret = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET || 'fallback_state_secret';
   const payload = {
     mode,
     nonce,
@@ -74,7 +81,7 @@ function createOAuthState(mode, nonce, userId = null) {
     iat: Date.now(),
   };
   const encoded = base64UrlEncode(JSON.stringify(payload));
-  const sig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  const sig = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(encoded).digest('base64url');
   return `${encoded}.${sig}`;
 }
 
@@ -84,8 +91,7 @@ function verifyOAuthState(stateToken, expectedNonce) {
   const [encoded, providedSig] = stateToken.split('.');
   if (!encoded || !providedSig) return { ok: false };
 
-  const secret = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET || 'fallback_state_secret';
-  const expectedSig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  const expectedSig = crypto.createHmac('sha256', OAUTH_STATE_SECRET).update(encoded).digest('base64url');
 
   // timing-safe compare
   const providedBuf = Buffer.from(providedSig);
@@ -102,6 +108,37 @@ function verifyOAuthState(stateToken, expectedNonce) {
     return { ok: true, payload };
   } catch {
     return { ok: false };
+  }
+}
+
+function storePendingExtensionSession({ accessToken, refreshToken }) {
+  const code = crypto.randomBytes(32).toString('hex');
+  pendingExtensionSessions.set(code, {
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + EXTENSION_CODE_TTL_MS,
+  });
+  return code;
+}
+
+function consumePendingExtensionSession(code) {
+  const pending = pendingExtensionSessions.get(code);
+  if (!pending) return null;
+
+  pendingExtensionSessions.delete(code);
+  if (pending.expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return pending;
+}
+
+function prunePendingExtensionSessions() {
+  const now = Date.now();
+  for (const [code, pending] of pendingExtensionSessions.entries()) {
+    if (pending.expiresAt <= now) {
+      pendingExtensionSessions.delete(code);
+    }
   }
 }
 
@@ -297,14 +334,19 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     const refreshToken = generateRefreshToken(user.id);
     await storeRefreshTokenHash(user.id, refreshToken);
 
+    res.cookie('access_token', accessToken, COOKIE_OPTIONS);
+    res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTIONS);
+
     if (oauthMode === 'extension') {
+      prunePendingExtensionSessions();
+      const extensionCode = storePendingExtensionSession({ accessToken, refreshToken });
       return res.redirect(
-        `${process.env.FRONTEND_URL}/extension-auth?access_token=${accessToken}&refresh_token=${refreshToken}`
+        `${process.env.FRONTEND_URL}/extension-auth?code=${extensionCode}`
       );
     }
 
     return res.redirect(
-      `${process.env.FRONTEND_URL}/dashboard?access_token=${accessToken}&refresh_token=${refreshToken}&new_user=${isNewUser}`
+      `${process.env.FRONTEND_URL}/dashboard?new_user=${isNewUser}`
     );
 
   } catch (err) {
@@ -350,6 +392,28 @@ router.post('/refresh', authLimiter, async (req, res) => {
     return res.status(401).json({ error: err.message, code });
   }
 });
+
+router.post(
+  '/extension/exchange',
+  authLimiter,
+  [body('code').isString().isLength({ min: 32, max: 128 })],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Invalid exchange code.' });
+    }
+
+    const pending = consumePendingExtensionSession(req.body.code);
+    if (!pending) {
+      return res.status(400).json({ error: 'Exchange code is invalid or expired.' });
+    }
+
+    return res.json({
+      accessToken: pending.accessToken,
+      refreshToken: pending.refreshToken,
+    });
+  }
+);
 
 // ─── GET /auth/me ─────────────────────────────────────────────────────────────
 // Return current authenticated user.

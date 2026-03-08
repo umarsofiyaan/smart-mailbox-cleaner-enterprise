@@ -8,10 +8,10 @@ const TAG_LENGTH = 16;
 
 function getKey() {
   const key = process.env.ENCRYPTION_KEY;
-  if (!key || key.length < 32) {
-    throw new Error('ENCRYPTION_KEY must be at least 32 characters');
+  if (!/^[0-9a-fA-F]{64}$/.test(key || '')) {
+    throw new Error('ENCRYPTION_KEY must be exactly 64 hex characters');
   }
-  return Buffer.from(key.substring(0, 64), 'hex');
+  return Buffer.from(key, 'hex');
 }
 
 /**
@@ -29,7 +29,6 @@ function encrypt(plaintext) {
 
   const tag = cipher.getAuthTag();
 
-  // Combine iv + tag + ciphertext, encode as base64
   const combined = Buffer.concat([iv, tag, encrypted]);
   return combined.toString('base64');
 }
@@ -56,9 +55,6 @@ function decrypt(encryptedBase64) {
   return decrypted;
 }
 
-/**
- * Hash a refresh token for storage lookup (one-way)
- */
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }

@@ -3,9 +3,6 @@ const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
-/**
- * Helmet security headers
- */
 const helmetMiddleware = helmet({
   contentSecurityPolicy: {
     directives: {
@@ -26,18 +23,13 @@ const helmetMiddleware = helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 });
 
-/**
- * CORS — only allow web dashboard and Chrome Extension
- */
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  // Chrome extensions use chrome-extension:// protocol
   `chrome-extension://${process.env.EXTENSION_ID}`,
 ].filter(Boolean);
 
 const corsMiddleware = cors({
   origin(origin, cb) {
-    // Allow same-origin/non-browser requests (no Origin header), e.g. health checks.
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
     return cb(new Error('CORS policy: origin not allowed'));
@@ -47,26 +39,19 @@ const corsMiddleware = cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 });
 
-/**
- * General API rate limiter
- */
 const generalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait before trying again.' },
   skip: (req) => {
     if (req.path === '/health') return true;
-    // Cleanup jobs are polled by the frontend; avoid tripping global limiter.
     if (req.path.startsWith('/cleanup/job/')) return true;
     return false;
   },
 });
 
-/**
- * Strict limiter for auth endpoints
- */
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -75,11 +60,8 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts. Please wait 15 minutes.' },
 });
 
-/**
- * Strict limiter for scan endpoints (expensive operations)
- */
 const scanLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
+  windowMs: 60 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
@@ -87,15 +69,30 @@ const scanLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id || req.ip,
 });
 
-/**
- * Strict limiter for cleanup endpoints
- */
 const cleanupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Cleanup rate limit reached.' },
+  keyGenerator: (req) => req.user?.id || req.ip,
+});
+
+const billingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Billing action rate limit reached. Please wait before retrying.' },
+  keyGenerator: (req) => req.user?.id || req.ip,
+});
+
+const automationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Automation rate limit reached. Please wait before retrying.' },
   keyGenerator: (req) => req.user?.id || req.ip,
 });
 
@@ -106,4 +103,6 @@ module.exports = {
   authLimiter,
   scanLimiter,
   cleanupLimiter,
+  billingLimiter,
+  automationLimiter,
 };

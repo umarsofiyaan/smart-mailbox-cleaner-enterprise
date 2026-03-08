@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, param, validationResult } = require('express-validator');
 
 const { requireAuth } = require('../middleware/auth');
+const { automationLimiter } = require('../middleware/security');
 const {
   createPlaybook,
   listPlaybooks,
@@ -30,6 +31,7 @@ router.get('/playbooks', async (req, res) => {
 
 router.post(
   '/playbooks',
+  automationLimiter,
   [
     body('name').isString().isLength({ min: 1, max: 120 }),
     body('query').isString().isLength({ min: 1, max: 2000 }),
@@ -43,7 +45,7 @@ router.post(
       return res.status(201).json({ playbook });
     } catch (err) {
       if (err.code === 'PLAYBOOK_LIMIT_REACHED' || String(err.message || '').startsWith('PLAYBOOK_LIMIT_REACHED')) {
-        return res.status(403).json({ error: `Playbook limit reached for your plan.`, code: 'PLAYBOOK_LIMIT_REACHED' });
+        return res.status(403).json({ error: 'Playbook limit reached for your plan.', code: 'PLAYBOOK_LIMIT_REACHED' });
       }
       logger.error('Failed to create playbook', err);
       return res.status(500).json({ error: 'Failed to create playbook.' });
@@ -53,6 +55,7 @@ router.post(
 
 router.patch(
   '/playbooks/:id',
+  automationLimiter,
   [
     param('id').isUUID(),
     body('name').optional().isString().isLength({ min: 1, max: 120 }),
@@ -87,7 +90,7 @@ router.delete('/playbooks/:id', [param('id').isUUID()], async (req, res) => {
   }
 });
 
-router.post('/playbooks/:id/preview', [param('id').isUUID()], async (req, res) => {
+router.post('/playbooks/:id/preview', automationLimiter, [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -101,7 +104,7 @@ router.post('/playbooks/:id/preview', [param('id').isUUID()], async (req, res) =
   }
 });
 
-router.post('/playbooks/:id/run', [param('id').isUUID()], async (req, res) => {
+router.post('/playbooks/:id/run', automationLimiter, [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 

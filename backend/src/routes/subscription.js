@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
+const { billingLimiter } = require('../middleware/security');
 const { applyPurchasedPlan, getQuotaSummary } = require('../services/quotaService');
 const { getUserPricingContext, cachePricingInSession } = require('../services/pricingService');
 const {
@@ -25,11 +26,7 @@ router.get('/pricing', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * POST /subscription/checkout
- * Body: { planType?: 'starter'|'pro'|'power' }
- */
-router.post('/checkout', requireAuth, async (req, res) => {
+router.post('/checkout', requireAuth, billingLimiter, async (req, res) => {
   const planType = String(req.body?.planType || 'pro').toLowerCase();
   try {
     const pricing = await getUserPricingContext(req.user.id, req);
@@ -48,13 +45,7 @@ router.post('/checkout', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * POST /subscription/purchase
- * Body: { plan_type: 'starter'|'pro'|'power' }
- * NOTE: This endpoint applies the purchased plan immediately.
- * In production, call this after a verified payment event.
- */
-router.post('/purchase', requireAuth, async (req, res) => {
+router.post('/purchase', requireAuth, billingLimiter, async (req, res) => {
   if (process.env.ALLOW_DIRECT_PURCHASE !== 'true') {
     return res.status(403).json({
       error: 'DIRECT_PURCHASE_DISABLED',
@@ -76,7 +67,7 @@ router.post('/purchase', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/verify', requireAuth, async (req, res) => {
+router.post('/verify', requireAuth, billingLimiter, async (req, res) => {
   const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
   try {
     await verifyAndActivatePayment(req.user.id, {
@@ -92,7 +83,7 @@ router.post('/verify', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/portal', requireAuth, async (req, res) => {
+router.post('/portal', requireAuth, billingLimiter, async (req, res) => {
   try {
     const { url } = await createPortalSession(req.user.id);
     return res.json({ url });
@@ -112,7 +103,7 @@ router.get('/status', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/cancel', requireAuth, async (req, res) => {
+router.post('/cancel', requireAuth, billingLimiter, async (req, res) => {
   const { query } = require('../config/database');
   try {
     const result = await query(
