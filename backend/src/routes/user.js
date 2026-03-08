@@ -114,7 +114,11 @@ router.get('/mailboxes', requireAuth, async (req, res) => {
 
 router.patch('/mailboxes/:mailboxId/primary', requireAuth, async (req, res) => {
   try {
-    await setPrimaryMailbox(req.user.id, req.params.mailboxId);
+    await setPrimaryMailbox(req.user.id, req.params.mailboxId, {
+      actorUserId: req.user.id,
+      actorEmail: req.user.email,
+      actorRole: 'user',
+    });
     return res.json({ success: true });
   } catch (err) {
     if (err.message === 'Mailbox not found.') {
@@ -127,7 +131,11 @@ router.patch('/mailboxes/:mailboxId/primary', requireAuth, async (req, res) => {
 
 router.delete('/mailboxes/:mailboxId', requireAuth, async (req, res) => {
   try {
-    await removeMailbox(req.user.id, req.params.mailboxId);
+    await removeMailbox(req.user.id, req.params.mailboxId, {
+      actorUserId: req.user.id,
+      actorEmail: req.user.email,
+      actorRole: 'user',
+    });
     return res.json({ success: true });
   } catch (err) {
     if (err.message === 'Mailbox not found.' || err.message === 'At least one mailbox must remain connected.') {

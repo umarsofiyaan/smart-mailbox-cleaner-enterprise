@@ -203,7 +203,7 @@ export default function CategoryCard({
           </button>
         )}
 
-        {/* Action button - Pro: unlimited | Free with quota: capped | Exhausted: offer upgrade | Neither: Pro required */}
+        {/* Action button - paid plan: full cleanup | Free with quota: capped | Exhausted: show unlock */}
         {isPro ? (
           <button
             onClick={() => onCleanup({
@@ -260,7 +260,7 @@ export default function CategoryCard({
           </button>
             {category.messageCount > quotaRemaining && (
               <p className="text-xs text-center text-amber-600">
-                You have {quotaRemaining} free credits. {category.messageCount - quotaRemaining} emails need Pro.
+                You have {quotaRemaining} free credits. {category.messageCount - quotaRemaining} emails require a paid plan.
               </p>
             )}
           </div>
@@ -286,10 +286,10 @@ export default function CategoryCard({
             </button>
           </div>
         ) : (
-          // Not pro, no quota info yet - show Pro required
+          // No plan/quota info yet - show locked state
           <div className="bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-100 rounded-xl p-3 text-center">
             <p className="text-xs text-gray-600">
-              <span className="font-semibold text-brand-700">Pro required</span> to clean up
+              <span className="font-semibold text-brand-700">Unlock a plan</span> to clean up
             </p>
           </div>
         )}

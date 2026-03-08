@@ -278,6 +278,25 @@ CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at) WHERE delet
 ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_warning_sent   BOOLEAN DEFAULT FALSE;
 ALTER TABLE user_quota ADD COLUMN IF NOT EXISTS quota_exhausted_sent BOOLEAN DEFAULT FALSE;
 
+-- 4. Mailbox link history (admin visibility for add/remove/primary changes)
+CREATE TABLE IF NOT EXISTS mailbox_link_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  mailbox_id UUID,
+  google_account_id VARCHAR(255),
+  google_email VARCHAR(255),
+  event_type VARCHAR(50) NOT NULL, -- connected | reconnected | set_primary | disconnected | auto_primary_switch
+  actor_user_id UUID,
+  actor_email VARCHAR(255),
+  actor_role VARCHAR(20) DEFAULT 'user', -- user | admin | system
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mailbox_events_user_id ON mailbox_link_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_mailbox_events_created_at ON mailbox_link_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mailbox_events_email ON mailbox_link_events(google_email);
+
 -- ============================================================
 -- Automation (Playbooks + Schedules + Runs)
 -- ============================================================

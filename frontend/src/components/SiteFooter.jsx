@@ -36,7 +36,7 @@ export default function SiteFooter() {
         </div>
       </div>
       <div className="max-w-6xl mx-auto px-6 pb-6 flex items-center gap-6 text-sm text-gray-600">
-        <span>(c) 2026 Smart Mailbox Cleaner</span>
+        <span>© 2026 Smart Mailbox Cleaner</span>
         <Link to="/privacy-policy" className="hover:text-gray-900">Privacy Policy</Link>
         <Link to="/terms-of-service" className="hover:text-gray-900">Terms of Service</Link>
       </div>

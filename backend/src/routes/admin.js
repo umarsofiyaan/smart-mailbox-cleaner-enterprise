@@ -8,6 +8,7 @@ const { query }          = require('../config/database');
 const { requireAuth }    = require('../middleware/auth');
 const { adminSetQuota, applyPurchasedPlan } = require('../services/quotaService');
 const { revokeAllTokens, deleteUserTokens } = require('../services/tokenService');
+const { setPrimaryMailbox, removeMailbox } = require('../services/mailboxService');
 const logger = require('../utils/logger');
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -83,6 +84,20 @@ router.get('/users', async (req, res) => {
         COALESCE(u.plan_expiry, s.current_period_end) AS current_period_end,
         q.lifetime_allowance, q.lifetime_used, q.daily_allowance, q.daily_used,
         q.daily_quota_granted_at,
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'id', cm.id,
+              'google_email', cm.google_email,
+              'is_primary', cm.is_primary,
+              'status', cm.status,
+              'created_at', cm.created_at
+            )
+            ORDER BY cm.is_primary DESC, cm.created_at ASC
+          )
+          FROM connected_mailboxes cm
+          WHERE cm.user_id = u.id AND cm.status = 'active'
+        ), '[]'::json) AS connected_mailboxes,
         (SELECT COUNT(*) FROM scans sc WHERE sc.user_id = u.id AND sc.status = 'complete') AS scan_count,
         (SELECT COUNT(*) FROM cleanup_actions cj WHERE cj.user_id = u.id AND cj.status = 'complete') AS cleanup_count
       FROM users u
@@ -292,6 +307,66 @@ router.patch('/users/:userId/restore', async (req, res) => {
   } catch (err) {
     logger.error('Admin: failed to restore user', err, { userId });
     return res.status(500).json({ error: 'Failed to restore user.' });
+  }
+});
+
+router.get('/users/:userId/mailbox-events', async (req, res) => {
+  const { userId } = req.params;
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  try {
+    const eventsRes = await query(
+      `SELECT id, user_id, mailbox_id, google_account_id, google_email, event_type,
+              actor_user_id, actor_email, actor_role, metadata, created_at
+       FROM mailbox_link_events
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
+    return res.json({ events: eventsRes.rows });
+  } catch (err) {
+    logger.error('Admin: failed to fetch mailbox events', err, { userId });
+    return res.status(500).json({ error: 'Failed to fetch mailbox events.' });
+  }
+});
+
+router.patch('/users/:userId/mailboxes/:mailboxId/primary', async (req, res) => {
+  const { userId, mailboxId } = req.params;
+  try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
+    await setPrimaryMailbox(userId, mailboxId, {
+      actorUserId: req.user.id,
+      actorEmail: req.user.email,
+      actorRole: 'admin',
+    });
+    await writeAudit(req.user.id, req.user.email, 'set_primary_mailbox', userId, target.rows[0]?.email, { mailboxId });
+    return res.json({ success: true });
+  } catch (err) {
+    if (err.message === 'Mailbox not found.') {
+      return res.status(404).json({ error: err.message });
+    }
+    logger.error('Admin: failed to set primary mailbox', err, { userId, mailboxId });
+    return res.status(500).json({ error: 'Failed to set primary mailbox.' });
+  }
+});
+
+router.delete('/users/:userId/mailboxes/:mailboxId', async (req, res) => {
+  const { userId, mailboxId } = req.params;
+  try {
+    const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
+    await removeMailbox(userId, mailboxId, {
+      actorUserId: req.user.id,
+      actorEmail: req.user.email,
+      actorRole: 'admin',
+    });
+    await writeAudit(req.user.id, req.user.email, 'remove_mailbox', userId, target.rows[0]?.email, { mailboxId });
+    return res.json({ success: true });
+  } catch (err) {
+    if (err.message === 'Mailbox not found.' || err.message === 'At least one mailbox must remain connected.') {
+      return res.status(400).json({ error: err.message });
+    }
+    logger.error('Admin: failed to remove mailbox', err, { userId, mailboxId });
+    return res.status(500).json({ error: 'Failed to remove mailbox.' });
   }
 });
 

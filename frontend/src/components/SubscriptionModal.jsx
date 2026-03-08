@@ -18,7 +18,7 @@ export default function SubscriptionModal({ user, onClose }) {
     : null;
 
   async function handleCancel() {
-    if (!window.confirm('Are you sure? You\'ll keep Pro access until the end of your billing period.')) {
+    if (!window.confirm('Are you sure? You\'ll keep paid access until the end of your billing period.')) {
       return;
     }
 
@@ -28,7 +28,7 @@ export default function SubscriptionModal({ user, onClose }) {
 
     try {
       await subscriptionApi.cancel();
-      setInfo('Subscription canceled. You will keep Pro access until the end of your billing period.');
+      setInfo('Subscription canceled. You will keep paid access until the end of your billing period.');
     } catch (err) {
       setError(err.message || 'Failed to cancel subscription. Please try again.');
     } finally {
@@ -81,7 +81,7 @@ export default function SubscriptionModal({ user, onClose }) {
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-center gap-2">
                 <span className="text-green-600 text-lg">OK</span>
-                Unlimited cleanups
+                Higher cleanup limits
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-green-600 text-lg">OK</span>
@@ -144,7 +144,7 @@ export default function SubscriptionModal({ user, onClose }) {
         {/* Footer Note */}
         {status === 'active' && (
           <p className="text-xs text-gray-500 text-center mt-4">
-            Canceling will end your subscription at the end of the current billing period. You'll keep Pro access until then.
+            Canceling will end your subscription at the end of the current billing period. You'll keep paid access until then.
           </p>
         )}
       </div>

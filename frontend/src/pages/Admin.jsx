@@ -16,6 +16,17 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDateTime(d) {
+  if (!d) return '-';
+  return new Date(d).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function resolveEffectivePlan(user) {
   if (user?.is_power_active) return 'power';
   if (user?.plan_type === 'starter' || user?.plan_type === 'pro') return user.plan_type;
@@ -49,6 +60,9 @@ function UserRow({ u, currentUserId, onRefresh }) {
   const [planInput, setPlanInput] = useState(resolveEffectivePlan(u));
   const [showCreditsEdit, setShowCreditsEdit] = useState(false);
   const [creditsInput, setCreditsInput] = useState(Math.max(0, Number(u.delete_credits || 0)));
+  const [showMailboxEvents, setShowMailboxEvents] = useState(false);
+  const [mailboxEvents, setMailboxEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   const isSelf = u.id === currentUserId;
   const isAdminUser = !!u.is_admin;
@@ -60,6 +74,7 @@ function UserRow({ u, currentUserId, onRefresh }) {
   const scanCount = Math.max(0, Number(u.scan_count || 0));
   const cleanupCount = Math.max(0, Number(u.cleanup_count || 0));
   const displayName = u.display_name || u.email?.split('@')[0] || '-';
+  const connectedMailboxes = Array.isArray(u.connected_mailboxes) ? u.connected_mailboxes : [];
 
   async function applyPlan() {
     if (!confirm(`Set plan for ${u.email} to ${planInput}?`)) return;
@@ -122,6 +137,67 @@ function UserRow({ u, currentUserId, onRefresh }) {
     }
   }
 
+  async function makePrimaryMailbox(mailbox) {
+    if (!mailbox?.id || mailbox.is_primary) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.patch(`/admin/users/${u.id}/mailboxes/${mailbox.id}/primary`);
+      onRefresh();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to set primary mailbox.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnectMailbox(mailbox) {
+    if (!mailbox?.id) return;
+    if (!confirm(`Disconnect mailbox ${mailbox.google_email}?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.delete(`/admin/users/${u.id}/mailboxes/${mailbox.id}`);
+      onRefresh();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to disconnect mailbox.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadMailboxEvents() {
+    setEventsLoading(true);
+    setError('');
+    try {
+      const res = await api.get(`/admin/users/${u.id}/mailbox-events`, { params: { limit: 20 } });
+      setMailboxEvents(Array.isArray(res.data?.events) ? res.data.events : []);
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to fetch mailbox events.');
+    } finally {
+      setEventsLoading(false);
+    }
+  }
+
+  async function toggleMailboxEvents() {
+    const next = !showMailboxEvents;
+    setShowMailboxEvents(next);
+    if (next && mailboxEvents.length === 0 && !eventsLoading) {
+      await loadMailboxEvents();
+    }
+  }
+
+  function renderEventLabel(eventType) {
+    const map = {
+      connected: 'Connected',
+      reconnected: 'Reconnected',
+      disconnected: 'Disconnected',
+      set_primary: 'Set as primary',
+      auto_primary_switch: 'Auto primary switch',
+    };
+    return map[eventType] || eventType;
+  }
+
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50/40 transition-colors">
       <td className="px-4 py-3">
@@ -169,7 +245,75 @@ function UserRow({ u, currentUserId, onRefresh }) {
         <p className="text-gray-400">{scanCount} scans</p>
       </td>
 
-      <td className="px-3 py-3 text-xs text-gray-300">-</td>
+      <td className="px-3 py-3">
+        <div className="space-y-1.5">
+          {connectedMailboxes.length === 0 ? (
+            <p className="text-xs text-gray-300">No connected mailboxes</p>
+          ) : (
+            connectedMailboxes.map((mailbox) => (
+              <div key={mailbox.id} className="border border-gray-100 rounded-lg p-2 bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-gray-700 truncate" title={mailbox.google_email}>
+                    {mailbox.google_email}
+                  </p>
+                  {mailbox.is_primary && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                      Primary
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {!mailbox.is_primary && (
+                    <button
+                      onClick={() => makePrimaryMailbox(mailbox)}
+                      disabled={busy}
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      Make Primary
+                    </button>
+                  )}
+                  {connectedMailboxes.length > 1 && (
+                    <button
+                      onClick={() => disconnectMailbox(mailbox)}
+                      disabled={busy}
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          <button
+            onClick={toggleMailboxEvents}
+            disabled={eventsLoading}
+            className="text-[10px] font-semibold px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {showMailboxEvents ? 'Hide History' : 'Show History'}
+          </button>
+          {showMailboxEvents && (
+            <div className="mt-2 border border-gray-100 rounded-lg p-2 bg-gray-50 space-y-1.5">
+              {eventsLoading && (
+                <p className="text-[10px] text-gray-500">Loading mailbox history...</p>
+              )}
+              {!eventsLoading && mailboxEvents.length === 0 && (
+                <p className="text-[10px] text-gray-500">No mailbox history yet.</p>
+              )}
+              {!eventsLoading && mailboxEvents.map((event) => (
+                <div key={event.id} className="text-[10px] text-gray-700 border border-gray-200 rounded px-2 py-1 bg-white">
+                  <p className="font-semibold">
+                    {renderEventLabel(event.event_type)}: {event.google_email || '-'}
+                  </p>
+                  <p className="text-gray-500">
+                    {formatDateTime(event.created_at)} | by {event.actor_role || 'user'} {event.actor_email ? `(${event.actor_email})` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </td>
 
       <td className="px-3 py-3">
         {error && <p className="text-xs text-red-500 mb-1.5">{error}</p>}
@@ -263,7 +407,7 @@ function UserTable({ title, users, currentUserId, onRefresh }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50/60 border-b border-gray-100">
-              {['USER', 'PLAN / ROLE', 'QUOTA', 'ACTIVITY', 'LAST ACTION', 'MANAGE'].map((h) => (
+              {['USER', 'PLAN / ROLE', 'QUOTA', 'ACTIVITY', 'MAILBOXES', 'MANAGE'].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
@@ -464,4 +608,3 @@ export default function Admin() {
     </div>
   );
 }
-

@@ -179,7 +179,10 @@ router.get('/google/callback', authLimiter, async (req, res) => {
       }
 
       try {
-        await upsertConnectedMailbox(connectCookieUserId, profile, tokens);
+        await upsertConnectedMailbox(connectCookieUserId, profile, tokens, {
+          actorUserId: connectCookieUserId,
+          actorRole: 'user',
+        });
         return res.redirect(
           `${process.env.FRONTEND_URL}/dashboard?mailbox_connected=success&mailbox_email=${encodeURIComponent(profile.email || '')}`
         );
@@ -252,6 +255,22 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     // If this was a deleted user who just came back — log it
     if (isDeletedUser) {
       logger.info('Previously deleted user re-registered', { userId: user.id, email: user.email });
+    }
+
+    // Ensure truly new independent signups always begin with fresh free credits.
+    if (isNewUser) {
+      await query(
+        `UPDATE users
+         SET delete_credits = 1000,
+             free_plan_used = FALSE,
+             plan_type = 'free',
+             plan_expiry = NULL,
+             emails_deleted_total = 0,
+             storage_recovered_mb = 0,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [user.id]
+      );
     }
 
     // Init subscription
