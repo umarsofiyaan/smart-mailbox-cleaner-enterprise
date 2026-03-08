@@ -59,6 +59,7 @@ router.post(
     if (scanCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Scan not found or does not belong to you.' });
     }
+    const scanMailboxId = scanCheck.rows[0].mailbox_id || null;
 
     if (cleanupMode === 'ids' && messageIds.length === 0 && customQuery) {
       cleanupMode = 'query';
@@ -272,4 +273,3 @@ router.get('/quota', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-    const scanMailboxId = scanCheck.rows[0].mailbox_id || null;
