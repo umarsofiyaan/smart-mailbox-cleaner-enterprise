@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
-function formatUsd(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+function formatPrice(value, currency = 'USD') {
+  const amount = Number(value || 0);
+  if (currency === 'INR') return `₹${amount.toFixed(0)}`;
+  return `$${amount.toFixed(2)}`;
 }
 
 export default function PaywallModal({
@@ -69,7 +71,9 @@ export default function PaywallModal({
                   )}
                 </div>
                 <p className="text-xs text-gray-500 mt-1">{plan.limitLabel}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-3">{formatUsd(plan.priceUsd)}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-3">
+                  {formatPrice(plan.price ?? plan.priceUsd, pricing?.currency)}
+                </p>
               </button>
             );
           })}

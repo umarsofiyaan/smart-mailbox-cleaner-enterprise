@@ -19,6 +19,10 @@ const REDUCED_PRICING = {
   power: 6.99,
 };
 
+function getInrPrice(base, fallback) {
+  return Number((process.env[`RAZORPAY_${base}_AMOUNT_PAISE_LOW`] || fallback) / 100);
+}
+
 const REGION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DB_CACHE_TTL_DAYS = 14;
 
@@ -35,29 +39,41 @@ function resolveRegion(countryCode) {
 
 function getPlanPricing(countryCode) {
   const region = resolveRegion(countryCode);
-  const prices = region === 'reduced' ? REDUCED_PRICING : FULL_PRICING;
+  const reduced = region === 'reduced';
+  const prices = reduced ? REDUCED_PRICING : FULL_PRICING;
+  const currency = reduced ? 'INR' : 'USD';
+  const displayPrices = reduced
+    ? {
+      starter: getInrPrice('STARTER', 149),
+      pro: getInrPrice('PRO', 349),
+      power: getInrPrice('POWER', 699),
+    }
+    : prices;
 
   return {
     countryCode: countryCode || 'US',
     region,
-    currency: 'USD',
+    currency,
     plans: {
       starter: {
         planType: 'starter',
         label: 'Starter',
         limitLabel: 'Clean up to 10,000 emails',
+        price: displayPrices.starter,
         priceUsd: prices.starter,
       },
       pro: {
         planType: 'pro',
         label: 'Pro',
         limitLabel: 'Clean up to 50,000 emails',
+        price: displayPrices.pro,
         priceUsd: prices.pro,
       },
       power: {
         planType: 'power',
         label: 'Power',
         limitLabel: 'Unlimited cleanup for 30 days',
+        price: displayPrices.power,
         priceUsd: prices.power,
       },
     },

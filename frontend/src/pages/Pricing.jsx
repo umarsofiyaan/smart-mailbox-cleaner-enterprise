@@ -4,8 +4,10 @@ import { subscriptionApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { launchRazorpayCheckout } from '../utils/razorpayCheckout';
 
-function fmt(price) {
-  return `$${Number(price || 0).toFixed(2)}`;
+function fmt(price, currency = 'USD') {
+  const value = Number(price || 0);
+  if (currency === 'INR') return `₹${value.toFixed(0)}`;
+  return `$${value.toFixed(2)}`;
 }
 
 export default function Pricing() {
@@ -78,7 +80,7 @@ export default function Pricing() {
             <div key={plan.planType} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
               <p className="text-sm font-bold text-gray-900">{plan.label}</p>
               <p className="text-xs text-gray-500 mt-1">{plan.limitLabel}</p>
-              <p className="text-4xl font-extrabold text-gray-900 mt-5">{fmt(plan.priceUsd)}</p>
+              <p className="text-4xl font-extrabold text-gray-900 mt-5">{fmt(plan.price ?? plan.priceUsd, pricing?.currency)}</p>
               <button
                 onClick={() => handleBuy(plan.planType)}
                 disabled={loading === plan.planType}
