@@ -6,7 +6,7 @@ const express = require('express');
 const router  = express.Router();
 const { query }          = require('../config/database');
 const { requireAuth }    = require('../middleware/auth');
-const { adminSetQuota, getQuotaSummary } = require('../services/quotaService');
+const { adminSetQuota, applyPurchasedPlan } = require('../services/quotaService');
 const { revokeAllTokens, deleteUserTokens } = require('../services/tokenService');
 const logger = require('../utils/logger');
 
@@ -73,7 +73,14 @@ router.get('/users', async (req, res) => {
       SELECT
         u.id, u.email, u.display_name, u.avatar_url, u.created_at, u.is_admin,
         u.deleted_at, u.deleted_by,
-        s.plan, s.status AS subscription_status, s.current_period_end,
+        u.plan_type, u.plan_expiry, u.delete_credits, u.emails_deleted_total, u.storage_recovered_mb,
+        CASE WHEN u.plan_type = 'power' AND u.plan_expiry > NOW() THEN TRUE ELSE FALSE END AS is_power_active,
+        COALESCE(NULLIF(u.plan_type, 'free'), s.plan, 'free') AS plan,
+        CASE
+          WHEN u.plan_type IN ('starter', 'pro', 'power') THEN 'active'
+          ELSE COALESCE(s.status, 'active')
+        END AS subscription_status,
+        COALESCE(u.plan_expiry, s.current_period_end) AS current_period_end,
         q.lifetime_allowance, q.lifetime_used, q.daily_allowance, q.daily_used,
         q.daily_quota_granted_at,
         (SELECT COUNT(*) FROM scans sc WHERE sc.user_id = u.id AND sc.status = 'complete') AS scan_count,
@@ -138,7 +145,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
   const { userId }        = req.params;
   const { plan, status }  = req.body;
 
-  const validPlans    = ['free', 'pro'];
+  const validPlans    = ['free', 'starter', 'pro', 'power'];
   const validStatuses = ['active', 'canceled', 'past_due'];
 
   if (!validPlans.includes(plan)) {
@@ -162,9 +169,20 @@ router.patch('/users/:userId/subscription', async (req, res) => {
          SET plan = 'free', status = $2, current_period_end = NULL, updated_at = NOW()`,
         [userId, status || 'canceled']
       );
+      await query(
+        `UPDATE users
+         SET plan_type = 'free',
+             plan_expiry = NULL,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [userId]
+      );
     } else {
-      // ── Grant Pro manually (no provider subscription required) ───────────
-      const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      // ── Grant paid plan manually (no provider subscription required) ─────
+      await applyPurchasedPlan(userId, plan);
+      const currentPeriodEnd = plan === 'power'
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        : null;
       await query(
         `INSERT INTO subscription_status (user_id, plan, status, current_period_end)
          VALUES ($1, $2, $3, $4)
@@ -186,12 +204,25 @@ router.patch('/users/:userId/subscription', async (req, res) => {
 
 router.patch('/users/:userId/quota', async (req, res) => {
   const { userId } = req.params;
-  const { lifetimeAllowance = 5000, lifetimeUsed = 0, dailyAllowance = 0 } = req.body;
+  const { deleteCredits, lifetimeAllowance = 1000, lifetimeUsed = 0, dailyAllowance = 0 } = req.body;
 
   try {
     const target = await query('SELECT email FROM users WHERE id = $1', [userId]);
-    await adminSetQuota(userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
-    await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
+    if (deleteCredits !== undefined && deleteCredits !== null) {
+      const credits = Math.max(0, Number(deleteCredits) || 0);
+      await query(
+        `UPDATE users
+         SET delete_credits = $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [userId, credits]
+      );
+      await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { deleteCredits: credits });
+    } else {
+      // Backward-compatible fallback.
+      await adminSetQuota(userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
+      await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
+    }
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update quota', err, { userId });
@@ -292,7 +323,7 @@ router.get('/stats', async (req, res) => {
   try {
     const [users, proUsers, scans, cleanups, newUsers] = await Promise.all([
       query('SELECT COUNT(*) FROM users WHERE deleted_at IS NULL'),
-      query("SELECT COUNT(*) FROM subscription_status WHERE plan = 'pro' AND status = 'active'"),
+      query("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND (plan_type IN ('starter', 'pro') OR (plan_type = 'power' AND plan_expiry > NOW()))"),
       query("SELECT COUNT(*) FROM scans WHERE status = 'complete'"),
       query("SELECT COUNT(*), COALESCE(SUM(bytes_freed),0) AS total_bytes FROM cleanup_actions WHERE status = 'complete'"),
       query("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '7 days'"),

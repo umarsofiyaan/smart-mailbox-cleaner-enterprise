@@ -1,4 +1,3 @@
-// src/pages/Admin.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -17,86 +16,114 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function PlanBadge({ plan, status }) {
-  const isPro = plan === 'pro' && status === 'active';
-  return isPro
-    ? <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">⭐ Pro</span>
-    : <span className="bg-gray-100 text-gray-500 text-xs font-medium px-2.5 py-1 rounded-full">Free</span>;
+function resolveEffectivePlan(user) {
+  if (user?.is_power_active) return 'power';
+  if (user?.plan_type === 'starter' || user?.plan_type === 'pro') return user.plan_type;
+  return 'free';
+}
+
+function PlanBadge({ user }) {
+  const plan = resolveEffectivePlan(user);
+  const cls = {
+    free: 'bg-gray-100 text-gray-600',
+    starter: 'bg-blue-100 text-blue-700',
+    pro: 'bg-indigo-100 text-indigo-700',
+    power: 'bg-emerald-100 text-emerald-700',
+  }[plan] || 'bg-gray-100 text-gray-600';
+  return (
+    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${cls}`}>
+      {plan.charAt(0).toUpperCase() + plan.slice(1)}
+    </span>
+  );
 }
 
 function RoleBadge({ isAdmin }) {
   return isAdmin
-    ? <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">👑 Admin</span>
-    : <span className="bg-gray-100 text-gray-400 text-xs px-2 py-0.5 rounded-full">User</span>;
+    ? <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">Admin</span>
+    : <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full">User</span>;
 }
 
 function UserRow({ u, currentUserId, onRefresh }) {
-  const [busy, setBusy]                   = useState(false);
-  const [error, setError]                 = useState('');
-  const [showQuotaEdit, setShowQuotaEdit] = useState(false);
-  const [quotaInput, setQuotaInput]       = useState(u.lifetime_allowance ?? 5000);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [planInput, setPlanInput] = useState(resolveEffectivePlan(u));
+  const [showCreditsEdit, setShowCreditsEdit] = useState(false);
+  const [creditsInput, setCreditsInput] = useState(Math.max(0, Number(u.delete_credits || 0)));
 
-  // ✅ Correct snake_case field names from backend
-  const isPro       = u.plan === 'pro' && u.subscription_status === 'active';
-  const isAdminUser = Boolean(u.is_admin);
-  const isSelf      = u.id === currentUserId;
+  const isSelf = u.id === currentUserId;
+  const isAdminUser = !!u.is_admin;
+  const plan = resolveEffectivePlan(u);
+  const isPower = plan === 'power';
 
-  const lifetimeAllowance = u.lifetime_allowance ?? 5000;
-  const lifetimeUsed      = u.lifetime_used      ?? 0;
-  const lifetimeRemaining = isPro ? null : Math.max(0, lifetimeAllowance - lifetimeUsed);
-  const cleanupCount      = parseInt(u.cleanup_count) || 0;
-  const scanCount         = parseInt(u.scan_count)    || 0;
-  const displayName       = u.display_name || u.email?.split('@')[0] || '-';
+  const deleteCredits = Math.max(0, Number(u.delete_credits || 0));
+  const deletedTotal = Math.max(0, Number(u.emails_deleted_total || 0));
+  const scanCount = Math.max(0, Number(u.scan_count || 0));
+  const cleanupCount = Math.max(0, Number(u.cleanup_count || 0));
+  const displayName = u.display_name || u.email?.split('@')[0] || '-';
 
-  async function togglePro() {
-    if (!confirm(`${isPro ? 'Remove Pro from' : 'Grant Pro to'} ${u.email}?`)) return;
-    setBusy(true); setError('');
+  async function applyPlan() {
+    if (!confirm(`Set plan for ${u.email} to ${planInput}?`)) return;
+    setBusy(true);
+    setError('');
     try {
-      await api.patch(`/admin/users/${u.id}/subscription`, { plan: isPro ? 'free' : 'pro', status: 'active' });
+      await api.patch(`/admin/users/${u.id}/subscription`, {
+        plan: planInput,
+        status: planInput === 'free' ? 'canceled' : 'active',
+      });
       onRefresh();
-    } catch (err) { setError(err.response?.data?.error || 'Failed'); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to update plan.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function toggleAdmin() {
     if (isSelf) return;
-    if (!confirm(`${isAdminUser ? 'Remove admin from' : 'Make admin'} ${u.email}?`)) return;
-    setBusy(true); setError('');
+    if (!confirm(`${isAdminUser ? 'Remove admin role from' : 'Grant admin role to'} ${u.email}?`)) return;
+    setBusy(true);
+    setError('');
     try {
       await api.patch(`/admin/users/${u.id}/role`, { isAdmin: !isAdminUser });
       onRefresh();
-    } catch (err) { setError(err.response?.data?.error || 'Failed'); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to update role.');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function saveQuota() {
-    if (!confirm(`Set quota for ${u.email} to ${quotaInput} lifetime emails?`)) return;
-    setBusy(true); setError('');
+  async function saveCredits() {
+    if (!confirm(`Set delete credits for ${u.email} to ${creditsInput}?`)) return;
+    setBusy(true);
+    setError('');
     try {
-      await api.patch(`/admin/users/${u.id}/quota`, { lifetimeAllowance: parseInt(quotaInput), lifetimeUsed: 0, dailyAllowance: 0 });
-      setShowQuotaEdit(false);
+      await api.patch(`/admin/users/${u.id}/quota`, { deleteCredits: Number(creditsInput || 0) });
+      setShowCreditsEdit(false);
       onRefresh();
-    } catch (err) { setError(err.response?.data?.error || 'Failed'); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Failed to update credits.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function deleteUser() {
     if (isSelf) return;
-    if (!confirm(`Delete ${u.email} and revoke all their sessions? Cannot be undone.`)) return;
+    if (!confirm(`Delete ${u.email}? This revokes all sessions and soft-deletes account.`)) return;
     setBusy(true);
+    setError('');
     try {
       await api.delete(`/admin/users/${u.id}`);
       onRefresh();
     } catch (err) {
-      setError(err.response?.data?.error || 'Delete failed');
+      setError(err?.response?.data?.error || 'Failed to delete user.');
       setBusy(false);
     }
   }
 
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50/40 transition-colors">
-
-      {/* User */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-2.5">
           {u.avatar_url
@@ -106,99 +133,116 @@ function UserRow({ u, currentUserId, onRefresh }) {
               </div>
           }
           <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate max-w-[160px]">
+            <p className="text-sm font-medium text-gray-900 truncate max-w-[180px]">
               {displayName}
               {isSelf && <span className="ml-1 text-xs text-indigo-400">(you)</span>}
             </p>
-            <p className="text-xs text-gray-400 truncate max-w-[160px]">{u.email}</p>
+            <p className="text-xs text-gray-400 truncate max-w-[180px]">{u.email}</p>
             <p className="text-xs text-gray-300 mt-0.5">Joined {formatDate(u.created_at)}</p>
           </div>
         </div>
       </td>
 
-      {/* Plan + Role */}
       <td className="px-3 py-3">
         <div className="flex flex-col gap-1.5">
-          <PlanBadge plan={u.plan} status={u.subscription_status} />
+          <PlanBadge user={u} />
           <RoleBadge isAdmin={isAdminUser} />
-          {u.current_period_end && isPro && (
-            <p className="text-xs text-gray-400">until {formatDate(u.current_period_end)}</p>
+          {isPower && (u.plan_expiry || u.current_period_end) && (
+            <p className="text-xs text-gray-400">until {formatDate(u.plan_expiry || u.current_period_end)}</p>
           )}
         </div>
       </td>
 
-      {/* Quota */}
       <td className="px-3 py-3">
-        {isPro ? (
+        {isPower ? (
           <span className="text-green-600 text-xs font-semibold">Unlimited</span>
         ) : (
           <div className="text-xs">
-            <p className="text-gray-700 font-medium">{lifetimeRemaining} <span className="text-gray-400 font-normal">remaining</span></p>
-            <p className="text-gray-400">{lifetimeUsed}/{lifetimeAllowance} used</p>
-            <div className="w-20 bg-gray-100 rounded-full h-1.5 mt-1 overflow-hidden">
-              <div
-                className={`h-full rounded-full ${lifetimeRemaining === 0 ? 'bg-red-400' : 'bg-amber-400'}`}
-                style={{ width: `${Math.min(100, (lifetimeUsed / lifetimeAllowance) * 100)}%` }}
-              />
-            </div>
+            <p className="text-gray-700 font-medium">{deleteCredits.toLocaleString()} remaining</p>
+            <p className="text-gray-400">{deletedTotal.toLocaleString()} deleted total</p>
           </div>
         )}
       </td>
 
-      {/* Activity */}
       <td className="px-3 py-3 text-xs">
         <p className="text-gray-600">{cleanupCount} cleanups</p>
         <p className="text-gray-400">{scanCount} scans</p>
       </td>
 
-      {/* Last Action */}
-      <td className="px-3 py-3 text-xs">
-        <span className="text-gray-300">-</span>
-      </td>
+      <td className="px-3 py-3 text-xs text-gray-300">-</td>
 
-      {/* Manage */}
       <td className="px-3 py-3">
         {error && <p className="text-xs text-red-500 mb-1.5">{error}</p>}
         <div className="flex flex-col gap-1.5">
-
-          <button onClick={togglePro} disabled={busy}
-            className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50 ${
-              isPro ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-700 hover:bg-green-100'
-            }`}>
-            {isPro ? 'Remove Pro' : 'Grant Pro'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={planInput}
+              onChange={(e) => setPlanInput(e.target.value)}
+              disabled={busy}
+              className="text-xs border border-gray-200 rounded-lg px-1.5 py-1 bg-white"
+            >
+              <option value="free">Free</option>
+              <option value="starter">Starter</option>
+              <option value="pro">Pro</option>
+              <option value="power">Power</option>
+            </select>
+            <button
+              onClick={applyPlan}
+              disabled={busy}
+              className="text-xs font-semibold px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              Apply
+            </button>
+          </div>
 
           {!isSelf && (
-            <button onClick={toggleAdmin} disabled={busy}
-              className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50 ${
-                isAdminUser ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
-              }`}>
+            <button
+              onClick={toggleAdmin}
+              disabled={busy}
+              className={`text-xs font-semibold px-2.5 py-1 rounded-lg disabled:opacity-50 ${
+                isAdminUser ? 'bg-orange-50 text-orange-700 hover:bg-orange-100' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+              }`}
+            >
               {isAdminUser ? 'Remove Admin' : 'Make Admin'}
             </button>
           )}
 
-          {!isPro && (
-            showQuotaEdit ? (
+          {!isPower && (
+            showCreditsEdit ? (
               <div className="flex items-center gap-1">
-                <input type="number" value={quotaInput} onChange={e => setQuotaInput(e.target.value)}
-                  className="w-16 border border-gray-200 rounded px-1.5 py-0.5 text-xs" min={0} max={10000} />
-                <button onClick={saveQuota} disabled={busy}
-                  className="text-xs font-semibold px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg disabled:opacity-50">
+                <input
+                  type="number"
+                  value={creditsInput}
+                  onChange={(e) => setCreditsInput(e.target.value)}
+                  className="w-20 border border-gray-200 rounded px-1.5 py-0.5 text-xs"
+                  min={0}
+                />
+                <button
+                  onClick={saveCredits}
+                  disabled={busy}
+                  className="text-xs font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg disabled:opacity-50"
+                >
                   Save
                 </button>
-                <button onClick={() => setShowQuotaEdit(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+                <button onClick={() => setShowCreditsEdit(false)} className="text-xs text-gray-400 hover:text-gray-600">x</button>
               </div>
             ) : (
-              <button onClick={() => setShowQuotaEdit(true)} disabled={busy}
-                className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50">
-                Edit Quota
+              <button
+                onClick={() => setShowCreditsEdit(true)}
+                disabled={busy}
+                className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                Edit Credits
               </button>
             )
           )}
 
           {!isSelf && (
-            <button onClick={deleteUser} disabled={busy}
-              className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors disabled:opacity-50">
+            <button
+              onClick={deleteUser}
+              disabled={busy}
+              className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"
+            >
               Delete User
             </button>
           )}
@@ -208,67 +252,57 @@ function UserRow({ u, currentUserId, onRefresh }) {
   );
 }
 
-function UserTable({ title, icon, users, currentUserId, onRefresh }) {
-  const [open, setOpen] = useState(true);
-  if (users.length === 0) return null;
-
+function UserTable({ title, users, currentUserId, onRefresh }) {
+  if (!users.length) return null;
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
-      <button onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-        <div className="flex items-center gap-2">
-          <span className="text-base">{icon}</span>
-          <h3 className="font-bold text-gray-800 text-sm">{title}</h3>
-          <span className="bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">{users.length}</span>
-        </div>
-        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
-      </button>
-
-      {open && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50/60 border-b border-gray-100">
-                {['USER', 'PLAN / ROLE', 'QUOTA', 'ACTIVITY', 'LAST ACTION', 'MANAGE'].map(h => (
-                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <UserRow key={u.id} u={u} currentUserId={currentUserId} onRefresh={onRefresh} />
+      <div className="px-5 py-3.5 border-b border-gray-50">
+        <h3 className="font-bold text-gray-800 text-sm">{title} <span className="text-gray-400 font-medium">({users.length})</span></h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/60 border-b border-gray-100">
+              {['USER', 'PLAN / ROLE', 'QUOTA', 'ACTIVITY', 'LAST ACTION', 'MANAGE'].map((h) => (
+                <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <UserRow key={u.id} u={u} currentUserId={currentUserId} onRefresh={onRefresh} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
 export default function Admin() {
-  const { user }  = useAuth();
-  const navigate  = useNavigate();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  const [stats,        setStats]        = useState(null);
-  const [allUsers,     setAllUsers]     = useState([]);
+  const [stats, setStats] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
   const [deletedUsers, setDeletedUsers] = useState([]);
-  const [auditLog,     setAuditLog]     = useState([]);
-  const [search,       setSearch]       = useState('');
-  const [loading,      setLoading]      = useState(true);
-  const [checking,     setChecking]     = useState(true);
-  const [isAdmin,      setIsAdmin]      = useState(false);
-  const [showDeleted,  setShowDeleted]  = useState(false);
-  const [showAudit,    setShowAudit]    = useState(true);
+  const [auditLog, setAuditLog] = useState([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function checkAdmin() {
       try {
         const res = await api.get('/auth/me');
-        if (res.data.isAdmin) { setIsAdmin(true); }
-        else { navigate('/dashboard'); }
-      } catch { navigate('/dashboard'); }
-      finally { setChecking(false); }
+        if (res.data.isAdmin) setIsAdmin(true);
+        else navigate('/dashboard');
+      } catch {
+        navigate('/dashboard');
+      } finally {
+        setChecking(false);
+      }
     }
     checkAdmin();
   }, [navigate]);
@@ -283,13 +317,10 @@ export default function Admin() {
         api.get('/admin/users', { params: { limit: 200, offset: 0, includeDeleted: 'true' } }),
         api.get('/admin/audit', { params: { limit: 50, offset: 0 } }),
       ]);
-      setStats(statsRes.data);
-      setAllUsers(usersRes.data.users || []);
-      // Only keep actually-deleted users (deleted_at is not null)
-      setDeletedUsers((deletedRes.data.users || []).filter(u => u.deleted_at));
-      setAuditLog(auditRes.data.log || []);
-    } catch (err) {
-      console.error('Admin load failed', err);
+      setStats(statsRes.data || null);
+      setAllUsers(usersRes.data?.users || []);
+      setDeletedUsers((deletedRes.data?.users || []).filter((u) => u.deleted_at));
+      setAuditLog(auditRes.data?.log || []);
     } finally {
       setLoading(false);
     }
@@ -307,70 +338,54 @@ export default function Admin() {
   if (!isAdmin) return null;
 
   const filtered = search.trim()
-    ? allUsers.filter(u =>
+    ? allUsers.filter((u) =>
         u.email?.toLowerCase().includes(search.toLowerCase()) ||
-        u.display_name?.toLowerCase().includes(search.toLowerCase())
-      )
+        u.display_name?.toLowerCase().includes(search.toLowerCase()))
     : allUsers;
 
-  // ✅ Group using correct snake_case field names
-  const adminUsers = filtered.filter(u => u.is_admin);
-  const proUsers   = filtered.filter(u => !u.is_admin && u.plan === 'pro' && u.subscription_status === 'active');
-  const freeUsers  = filtered.filter(u => !u.is_admin && !(u.plan === 'pro' && u.subscription_status === 'active'));
+  const adminUsers = filtered.filter((u) => u.is_admin);
+  const paidUsers = filtered.filter((u) => !u.is_admin && resolveEffectivePlan(u) !== 'free');
+  const freeUsers = filtered.filter((u) => !u.is_admin && resolveEffectivePlan(u) === 'free');
 
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <span className="text-lg">⚙️</span>
             <span className="font-bold text-gray-900 text-sm">Admin Dashboard</span>
             <span className="text-xs bg-red-100 text-red-600 font-bold px-2 py-0.5 rounded-full">Admin</span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={load} disabled={loading}
-              className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors disabled:opacity-50">
-              ↻ Refresh
+            <button onClick={load} disabled={loading} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 disabled:opacity-50">
+              Refresh
             </button>
             <button onClick={() => navigate('/dashboard')} className="text-sm text-gray-500 hover:text-gray-700">
-              ← Back to App
+              Back to App
             </button>
           </div>
         </div>
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-
         {stats && (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
-            {[
-              { label: 'Total Users',     value: stats.totalUsers,                   color: 'bg-blue-50   text-blue-700',   icon: '👥' },
-              { label: 'Pro Subscribers', value: stats.proUsers,                     color: 'bg-indigo-50 text-indigo-700', icon: '⭐' },
-              { label: 'New This Week',   value: stats.newUsersThisWeek ?? '-',      color: 'bg-teal-50   text-teal-700',   icon: '🆕' },
-              { label: 'Scans Done',      value: stats.totalScans,                   color: 'bg-purple-50 text-purple-700', icon: '🔍' },
-              { label: 'Space Freed',     value: formatBytes(stats.totalBytesFreed), color: 'bg-green-50  text-green-700',  icon: '🗑️' },
-            ].map(s => (
-              <div key={s.label} className={`rounded-2xl p-4 ${s.color}`}>
-                <p className="text-xl font-bold">{s.value?.toLocaleString?.() ?? s.value}</p>
-                <p className="text-xs font-semibold mt-1 opacity-70">{s.icon} {s.label}</p>
-              </div>
-            ))}
+            <div className="rounded-2xl p-4 bg-blue-50 text-blue-700"><p className="text-xl font-bold">{stats.totalUsers}</p><p className="text-xs font-semibold mt-1 opacity-70">Total Users</p></div>
+            <div className="rounded-2xl p-4 bg-indigo-50 text-indigo-700"><p className="text-xl font-bold">{stats.proUsers}</p><p className="text-xs font-semibold mt-1 opacity-70">Paid Users</p></div>
+            <div className="rounded-2xl p-4 bg-teal-50 text-teal-700"><p className="text-xl font-bold">{stats.newUsersThisWeek ?? 0}</p><p className="text-xs font-semibold mt-1 opacity-70">New This Week</p></div>
+            <div className="rounded-2xl p-4 bg-purple-50 text-purple-700"><p className="text-xl font-bold">{stats.totalScans}</p><p className="text-xs font-semibold mt-1 opacity-70">Scans Done</p></div>
+            <div className="rounded-2xl p-4 bg-green-50 text-green-700"><p className="text-xl font-bold">{formatBytes(stats.totalBytesFreed)}</p><p className="text-xs font-semibold mt-1 opacity-70">Space Freed</p></div>
           </div>
         )}
 
         <div className="mb-5">
-          <input type="text" placeholder="Search by email or name..." value={search}
-            onChange={e => setSearch(e.target.value)}
+          <input
+            type="text"
+            placeholder="Search by email or name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white shadow-sm"
           />
         </div>
-
-        {!loading && (
-          <div className="flex gap-4 mb-5 text-xs text-gray-400">
-            <span>{filtered.length} users total</span>
-            {search && <span className="text-indigo-500">filtered from {allUsers.length}</span>}
-          </div>
-        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -378,118 +393,70 @@ export default function Admin() {
           </div>
         ) : (
           <>
-            <UserTable title="Admins"          icon="👑" users={adminUsers} currentUserId={user?.id} onRefresh={load} />
-            <UserTable title="Pro Subscribers" icon="⭐" users={proUsers}   currentUserId={user?.id} onRefresh={load} />
-            <UserTable title="Free Users"      icon="👤" users={freeUsers}  currentUserId={user?.id} onRefresh={load} />
-            {filtered.length === 0 && (
-              <div className="text-center py-16 text-gray-400">
-                {search ? 'No users match your search.' : 'No users found.'}
-              </div>
-            )}
+            <UserTable title="Admins" users={adminUsers} currentUserId={user?.id} onRefresh={load} />
+            <UserTable title="Paid Users" users={paidUsers} currentUserId={user?.id} onRefresh={load} />
+            <UserTable title="Free Users" users={freeUsers} currentUserId={user?.id} onRefresh={load} />
 
-            {/* ── Deleted Users ──────────────────────────────────────────────────── */}
             {deletedUsers.length > 0 && (
               <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden mb-6">
-                <button
-                  onClick={() => setShowDeleted(v => !v)}
-                  className="w-full flex items-center justify-between px-5 py-3.5 border-b border-red-50 hover:bg-red-50/30 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🗑️</span>
-                    <h3 className="font-bold text-gray-800 text-sm">Deleted Users</h3>
-                    <span className="bg-red-100 text-red-500 text-xs font-medium px-2 py-0.5 rounded-full">{deletedUsers.length}</span>
-                    <span className="text-xs text-gray-400 ml-1">- sessions revoked, read-only view</span>
-                  </div>
-                  <span className="text-gray-400 text-xs">{showDeleted ? '▲' : '▼'}</span>
-                </button>
-                {showDeleted && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-red-50/40 border-b border-red-50">
-                          {['USER', 'EMAIL', 'JOINED', 'DELETED ON', 'SCANS', 'CLEANUPS'].map(h => (
-                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {deletedUsers.map(u => (
-                          <tr key={u.id} className="border-b border-gray-50 opacity-70">
-                            <td className="px-4 py-3">
-                              <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 font-bold text-sm">
-                                {(u.display_name || u.email || '?')[0].toUpperCase()}
-                              </div>
-                            </td>
-                            <td className="px-3 py-3">
-                              <p className="text-xs text-gray-600 line-through">{u.display_name || '-'}</p>
-                              <p className="text-xs text-gray-400">{u.email}</p>
-                            </td>
-                            <td className="px-3 py-3 text-xs text-gray-400">{formatDate(u.created_at)}</td>
-                            <td className="px-3 py-3 text-xs text-red-400">{formatDate(u.deleted_at)}</td>
-                            <td className="px-3 py-3 text-xs text-gray-400">{u.scan_count || 0}</td>
-                            <td className="px-3 py-3 text-xs text-gray-400">{u.cleanup_count || 0}</td>
-                          </tr>
+                <div className="px-5 py-3.5 border-b border-red-50">
+                  <h3 className="font-bold text-gray-800 text-sm">Deleted Users <span className="text-red-500">({deletedUsers.length})</span></h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-red-50/40 border-b border-red-50">
+                        {['USER', 'EMAIL', 'JOINED', 'DELETED ON'].map((h) => (
+                          <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deletedUsers.map((u) => (
+                        <tr key={u.id} className="border-b border-gray-50 opacity-80">
+                          <td className="px-4 py-3 text-sm text-gray-700">{u.display_name || '-'}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{u.email}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{formatDate(u.created_at)}</td>
+                          <td className="px-4 py-3 text-xs text-red-500">{formatDate(u.deleted_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
-            {/* ── Audit Log ──────────────────────────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
-              <button
-                onClick={() => setShowAudit(v => !v)}
-                className="w-full flex items-center justify-between px-5 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📋</span>
-                  <h3 className="font-bold text-gray-800 text-sm">Admin Audit Log</h3>
-                  <span className="bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">{auditLog.length}</span>
-                </div>
-                <span className="text-gray-400 text-xs">{showAudit ? '▲' : '▼'}</span>
-              </button>
-              {showAudit && (
-                auditLog.length === 0 ? (
-                  <div className="text-center py-10 text-gray-400 text-sm">No admin actions recorded yet.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50/60 border-b border-gray-100">
-                          {['WHEN', 'ADMIN', 'ACTION', 'TARGET USER', 'DETAIL'].map(h => (
-                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {auditLog.map(entry => (
-                          <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50/40">
-                            <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{formatDate(entry.created_at)}</td>
-                            <td className="px-3 py-2.5 text-xs text-gray-600">{entry.admin_email || '-'}</td>
-                            <td className="px-3 py-2.5">
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                entry.action === 'delete_user'       ? 'bg-red-50 text-red-600'     :
-                                entry.action === 'set_subscription'  ? 'bg-indigo-50 text-indigo-600':
-                                entry.action === 'set_role'          ? 'bg-amber-50 text-amber-600' :
-                                entry.action === 'restore_user'      ? 'bg-green-50 text-green-600' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>
-                                {entry.action.replace(/_/g, ' ')}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-gray-500">{entry.target_email || '-'}</td>
-                            <td className="px-3 py-2.5 text-xs text-gray-400 font-mono">
-                              {entry.detail ? JSON.stringify(entry.detail).replace(/[{}"]/g, '').slice(0, 60) : '-'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              )}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-gray-50">
+                <h3 className="font-bold text-gray-800 text-sm">Admin Audit Log <span className="text-gray-400">({auditLog.length})</span></h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50/60 border-b border-gray-100">
+                      {['WHEN', 'ADMIN', 'ACTION', 'TARGET USER', 'DETAIL'].map((h) => (
+                        <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLog.map((a) => (
+                      <tr key={a.id} className="border-b border-gray-50">
+                        <td className="px-4 py-3 text-xs text-gray-500">{formatDate(a.created_at)}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{a.admin_email || '-'}</td>
+                        <td className="px-4 py-3 text-xs font-medium text-indigo-600">{a.action}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{a.target_email || '-'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{JSON.stringify(a.detail || {})}</td>
+                      </tr>
+                    ))}
+                    {auditLog.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">No audit records.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         )}
@@ -497,3 +464,4 @@ export default function Admin() {
     </div>
   );
 }
+
