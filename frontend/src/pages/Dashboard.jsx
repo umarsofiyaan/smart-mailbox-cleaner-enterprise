@@ -358,6 +358,8 @@ export default function Dashboard() {
 
   const quotaRemaining  = Number(quota?.delete_credits ?? 0);
   const isFreeWithQuota = !isPro;
+  const canAddMailbox = mailboxes.length < mailboxLimit;
+  const shouldShowMailboxPowerUpsell = !quota?.is_power_active && mailboxes.length >= mailboxLimit;
 
   // ── Quick scan ──────────────────────────────────────────────────────────────
 
@@ -791,13 +793,20 @@ export default function Dashboard() {
                   </option>
                 ))}
               </select>
-              <button
-                onClick={handleConnectMailbox}
-                disabled={mailboxBusy || mailboxes.length >= mailboxLimit}
-                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
-              >
-                Connect mailbox
-              </button>
+              <div className="flex flex-col items-start gap-1">
+                <button
+                  onClick={handleConnectMailbox}
+                  disabled={mailboxBusy || !canAddMailbox}
+                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Connect mailbox
+                </button>
+                {shouldShowMailboxPowerUpsell && (
+                  <p className="text-[11px] text-amber-600 max-w-[260px] leading-relaxed">
+                    Add up to 5 mailboxes with the Power plan. Power also unlocks unlimited cleanup actions while active.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
           {selectedMailbox && (

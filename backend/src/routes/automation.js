@@ -20,8 +20,8 @@ router.use(requireAuth);
 
 router.get('/playbooks', async (req, res) => {
   try {
-    const items = await listPlaybooks(req.user.id);
-    return res.json({ items });
+    const result = await listPlaybooks(req.user.id);
+    return res.json(result);
   } catch (err) {
     logger.error('Failed to list playbooks', err);
     return res.status(500).json({ error: 'Failed to list playbooks.' });
@@ -42,6 +42,9 @@ router.post(
       const playbook = await createPlaybook(req.user.id, req.body);
       return res.status(201).json({ playbook });
     } catch (err) {
+      if (err.code === 'PLAYBOOK_LIMIT_REACHED' || String(err.message || '').startsWith('PLAYBOOK_LIMIT_REACHED')) {
+        return res.status(403).json({ error: `Playbook limit reached for your plan.`, code: 'PLAYBOOK_LIMIT_REACHED' });
+      }
       logger.error('Failed to create playbook', err);
       return res.status(500).json({ error: 'Failed to create playbook.' });
     }

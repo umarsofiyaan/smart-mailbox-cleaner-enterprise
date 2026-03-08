@@ -65,6 +65,7 @@ export default function PlaybooksPanel() {
   const [info, setInfo] = useState('');
   const [draft, setDraft] = useState(defaultDraft());
   const [editingId, setEditingId] = useState(null);
+  const [limits, setLimits] = useState(null);
 
   const timezone = useMemo(() => getBrowserTimezone(), []);
 
@@ -76,6 +77,7 @@ export default function PlaybooksPanel() {
         automationApi.getDomainInsights(),
       ]);
       setItems(playbooksRes.data.items || []);
+      setLimits(playbooksRes.data.limits || null);
       setRuns(runsRes.data.runs || []);
       setInsights(insightsRes.data.items || []);
     } catch (e) {
@@ -84,6 +86,8 @@ export default function PlaybooksPanel() {
   }
 
   useEffect(() => { load(); }, []);
+
+  const playbookLimitReached = limits && Number(limits.used || 0) >= Number(limits.limit || 0);
 
   async function createPlaybook(e) {
     e.preventDefault();
@@ -193,24 +197,30 @@ export default function PlaybooksPanel() {
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-gray-100 p-5">
         <h3 className="text-lg font-semibold text-gray-900 mb-1">Smart Actions</h3>
-        <p className="text-xs text-gray-500 mb-3">Timezone: {timezone}</p>
+        <p className="text-xs text-gray-500 mb-2">Timezone: {timezone}</p>
+        {limits && (
+          <p className="text-xs text-gray-500 mb-3">Playbooks: {limits.used} / {limits.limit} used ({limits.planType}).</p>
+        )}
         <form className="grid md:grid-cols-2 gap-3" onSubmit={createPlaybook}>
           <input
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
             placeholder="Playbook name"
             value={draft.name}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+            disabled={playbookLimitReached}
           />
           <input
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
             placeholder="Gmail query (e.g. category:promotions older_than:90d)"
             value={draft.query}
             onChange={(e) => setDraft((d) => ({ ...d, query: e.target.value }))}
+            disabled={playbookLimitReached}
           />
           <select
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
             value={draft.frequency}
             onChange={(e) => setDraft((d) => ({ ...d, frequency: e.target.value }))}
+            disabled={playbookLimitReached}
           >
             <option value="none">No schedule</option>
             <option value="daily">Daily</option>
@@ -222,12 +232,13 @@ export default function PlaybooksPanel() {
               className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
               value={draft.run_at_utc}
               onChange={(e) => setDraft((d) => ({ ...d, run_at_utc: e.target.value }))}
+              disabled={playbookLimitReached}
             />
             <select
               className="border border-gray-200 rounded-xl px-3 py-2 text-sm"
               value={draft.day_of_week}
               onChange={(e) => setDraft((d) => ({ ...d, day_of_week: Number(e.target.value) }))}
-              disabled={draft.frequency !== 'weekly'}
+              disabled={draft.frequency !== 'weekly' || playbookLimitReached}
             >
               <option value={0}>Sun</option>
               <option value={1}>Mon</option>
@@ -240,12 +251,15 @@ export default function PlaybooksPanel() {
           </div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || playbookLimitReached}
             className="md:col-span-2 bg-brand-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-60"
           >
             {loading ? 'Saving...' : 'Save Playbook'}
           </button>
         </form>
+        {playbookLimitReached && (
+          <p className="text-sm text-amber-600 mt-3">Playbook limit reached for your current plan. Upgrade to create more.</p>
+        )}
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
         {info && <p className="text-sm text-indigo-600 mt-3">{info}</p>}
       </div>

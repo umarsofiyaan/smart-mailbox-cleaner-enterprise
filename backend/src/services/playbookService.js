@@ -24,6 +24,42 @@ function buildEffectiveQuery(baseQuery, safetyRules) {
   return [baseQuery, ...safeParts].join(' ').trim();
 }
 
+function getPlaybookLimitForPlan(planType, isPowerActive) {
+  if (isPowerActive) return 10;
+  if (planType === 'pro') return 5;
+  if (planType === 'starter') return 2;
+  return 1;
+}
+
+async function getPlaybookLimitsForUser(userId) {
+  const userRes = await query(
+    `SELECT plan_type, plan_expiry
+     FROM users
+     WHERE id = $1`,
+    [userId]
+  );
+  const row = userRes.rows[0] || {};
+  const isPowerActive = row.plan_type === 'power' && row.plan_expiry && new Date(row.plan_expiry) > new Date();
+  const planType = isPowerActive ? 'power' : (row.plan_type || 'free');
+  const limit = getPlaybookLimitForPlan(planType, isPowerActive);
+
+  const countRes = await query(
+    `SELECT COUNT(*)::int AS count
+     FROM playbooks
+     WHERE user_id = $1`,
+    [userId]
+  );
+
+  const used = Number(countRes.rows[0]?.count || 0);
+  return {
+    planType,
+    isPowerActive,
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
+  };
+}
+
 function parseTime(value) {
   const m = String(value || '').match(/^(\d{2}):(\d{2})/);
   if (!m) return { hour: 3, minute: 0 };
@@ -175,6 +211,14 @@ function summarizeDomainFromMessage(domainMap, msg) {
 }
 
 async function createPlaybook(userId, payload) {
+  const limits = await getPlaybookLimitsForUser(userId);
+  if (limits.used >= limits.limit) {
+    const err = new Error(`PLAYBOOK_LIMIT_REACHED:${limits.limit}`);
+    err.code = 'PLAYBOOK_LIMIT_REACHED';
+    err.limit = limits.limit;
+    throw err;
+  }
+
   const safety = normalizeSafetyRules(payload.safety_rules);
   const frequency = payload.schedule?.frequency || 'none';
   const runAtUtc = payload.schedule?.run_at_utc || '03:00';
@@ -203,6 +247,7 @@ async function createPlaybook(userId, payload) {
 }
 
 async function listPlaybooks(userId) {
+  const limits = await getPlaybookLimitsForUser(userId);
   const result = await query(
     `SELECT p.id, p.name, p.query, p.safety_rules, p.action_mode, p.version, p.is_active, p.created_at, p.updated_at,
             s.frequency, s.day_of_week, s.run_at_utc, s.timezone, s.next_run_at, s.last_run_at, s.is_active AS schedule_active
@@ -212,7 +257,7 @@ async function listPlaybooks(userId) {
      ORDER BY p.created_at DESC`,
     [userId]
   );
-  return result.rows;
+  return { items: result.rows, limits };
 }
 
 async function updatePlaybook(userId, playbookId, payload) {
@@ -512,4 +557,5 @@ module.exports = {
   listRuns,
   getLatestInsights,
   buildEffectiveQuery,
+  getPlaybookLimitsForUser,
 };
