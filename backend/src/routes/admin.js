@@ -310,6 +310,53 @@ router.patch('/users/:userId/restore', async (req, res) => {
   }
 });
 
+router.get('/mailbox-events', async (req, res) => {
+  const { search = '', userId = '', eventType = '', limit = 100 } = req.query;
+  const params = [];
+  const clauses = [];
+
+  if (String(userId).trim()) {
+    params.push(String(userId).trim());
+    clauses.push(`mle.user_id = ${params.length}`);
+  }
+
+  if (String(eventType).trim()) {
+    params.push(String(eventType).trim());
+    clauses.push(`mle.event_type = ${params.length}`);
+  }
+
+  if (String(search).trim()) {
+    params.push(`%${String(search).trim().toLowerCase()}%`);
+    clauses.push(`(
+      LOWER(COALESCE(mle.google_email, '')) LIKE ${params.length}
+      OR LOWER(COALESCE(u.email, '')) LIKE ${params.length}
+      OR LOWER(COALESCE(u.display_name, '')) LIKE ${params.length}
+      OR LOWER(COALESCE(mle.actor_email, '')) LIKE ${params.length}
+    )`);
+  }
+
+  const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  try {
+    const eventsRes = await query(
+      `SELECT mle.id, mle.user_id, mle.mailbox_id, mle.google_account_id, mle.google_email,
+              mle.event_type, mle.actor_user_id, mle.actor_email, mle.actor_role,
+              mle.metadata, mle.created_at,
+              u.email AS user_email, u.display_name AS user_display_name
+       FROM mailbox_link_events mle
+       LEFT JOIN users u ON u.id = mle.user_id
+       ${whereClause}
+       ORDER BY mle.created_at DESC
+       LIMIT ${params.length + 1}`,
+      [...params, Math.min(500, Math.max(1, Number(limit) || 100))]
+    );
+    return res.json({ events: eventsRes.rows });
+  } catch (err) {
+    logger.error('Admin: failed to fetch global mailbox events', err);
+    return res.status(500).json({ error: 'Failed to fetch mailbox history.' });
+  }
+});
+
 router.get('/users/:userId/mailbox-events', async (req, res) => {
   const { userId } = req.params;
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));

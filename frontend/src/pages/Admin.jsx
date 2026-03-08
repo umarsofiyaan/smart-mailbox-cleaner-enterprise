@@ -27,6 +27,17 @@ function formatDateTime(d) {
   });
 }
 
+function mailboxEventLabel(eventType) {
+  const map = {
+    connected: 'Connected',
+    reconnected: 'Reconnected',
+    disconnected: 'Disconnected',
+    set_primary: 'Set as primary',
+    auto_primary_switch: 'Auto primary switch',
+  };
+  return map[eventType] || eventType;
+}
+
 function resolveEffectivePlan(user) {
   if (user?.is_power_active) return 'power';
   if (user?.plan_type === 'starter' || user?.plan_type === 'pro') return user.plan_type;
@@ -423,6 +434,83 @@ function UserTable({ title, users, currentUserId, onRefresh }) {
   );
 }
 
+function MailboxHistorySection({
+  events,
+  search,
+  setSearch,
+  eventType,
+  setEventType,
+  loading,
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
+      <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="font-bold text-gray-800 text-sm">Mailbox History</h3>
+          <p className="text-xs text-gray-400 mt-1">Global mailbox add/remove/primary-change audit across all accounts.</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            placeholder="Search mailbox or user email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+          />
+          <select
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+          >
+            <option value="">All events</option>
+            <option value="connected">Connected</option>
+            <option value="reconnected">Reconnected</option>
+            <option value="set_primary">Set primary</option>
+            <option value="auto_primary_switch">Auto primary switch</option>
+            <option value="disconnected">Disconnected</option>
+          </select>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/60 border-b border-gray-100">
+              {['WHEN', 'EVENT', 'MAILBOX', 'ACCOUNT', 'ACTOR'].map((h) => (
+                <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">Loading mailbox history...</td>
+              </tr>
+            )}
+            {!loading && events.map((event) => (
+              <tr key={event.id} className="border-b border-gray-50">
+                <td className="px-4 py-3 text-xs text-gray-500">{formatDateTime(event.created_at)}</td>
+                <td className="px-4 py-3 text-xs font-medium text-indigo-600">{mailboxEventLabel(event.event_type)}</td>
+                <td className="px-4 py-3 text-xs text-gray-700">{event.google_email || '-'}</td>
+                <td className="px-4 py-3 text-xs text-gray-600">{event.user_email || '-'}
+                  <span className="block text-gray-400 mt-0.5">{event.user_display_name || '-'}</span>
+                </td>
+                <td className="px-4 py-3 text-xs text-gray-600">{event.actor_email || event.actor_role || '-'}
+                  <span className="block text-gray-400 mt-0.5">{event.actor_role || '-'}</span>
+                </td>
+              </tr>
+            ))}
+            {!loading && events.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">No mailbox history found.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -435,6 +523,10 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [mailboxHistory, setMailboxHistory] = useState([]);
+  const [mailboxHistorySearch, setMailboxHistorySearch] = useState('');
+  const [mailboxHistoryEventType, setMailboxHistoryEventType] = useState('');
+  const [mailboxHistoryLoading, setMailboxHistoryLoading] = useState(false);
 
   useEffect(() => {
     async function checkAdmin() {
@@ -471,6 +563,33 @@ export default function Admin() {
   }, [isAdmin]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function loadMailboxHistory() {
+    if (!isAdmin) return;
+    setMailboxHistoryLoading(true);
+    try {
+      const res = await api.get('/admin/mailbox-events', {
+        params: {
+          limit: 100,
+          search: mailboxHistorySearch.trim() || undefined,
+          eventType: mailboxHistoryEventType || undefined,
+        },
+      });
+      setMailboxHistory(res.data?.events || []);
+    } catch {
+      setMailboxHistory([]);
+    } finally {
+      setMailboxHistoryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const timer = setTimeout(() => {
+      loadMailboxHistory();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [isAdmin, mailboxHistorySearch, mailboxHistoryEventType]);
 
   if (checking) {
     return (
@@ -569,6 +688,15 @@ export default function Admin() {
                 </div>
               </div>
             )}
+
+            <MailboxHistorySection
+              events={mailboxHistory}
+              search={mailboxHistorySearch}
+              setSearch={setMailboxHistorySearch}
+              eventType={mailboxHistoryEventType}
+              setEventType={setMailboxHistoryEventType}
+              loading={mailboxHistoryLoading}
+            />
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-3.5 border-b border-gray-50">
