@@ -92,7 +92,6 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: process.env.npm_package_version || '1.0.0',
     timestamp: new Date().toISOString(),
   });
 });

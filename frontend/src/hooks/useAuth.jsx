@@ -56,17 +56,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const storedRefresh = localStorage.getItem('refresh_token');
-        const refreshRes = await authApi.refresh(storedRefresh);
-        const { accessToken, refreshToken: newRefresh } = refreshRes.data || {};
-
-        if (accessToken) {
-          localStorage.setItem('access_token', accessToken);
-        }
-        if (newRefresh) {
-          localStorage.setItem('refresh_token', newRefresh);
-        }
-
+        await authApi.refresh();
         const retryRes = await authApi.getMe();
         setUser(retryRes.data);
         return;

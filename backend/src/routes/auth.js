@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const router = express.Router();
 
 const { getAuthUrl, exchangeCode, getGoogleProfile } = require('../config/google');
-const { query } = require('../config/database');
+const { query, getClient } = require('../config/database');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -17,13 +17,13 @@ const {
   storeRefreshTokenHash,
   rotateRefreshToken,
   revokeAllTokens,
-  deleteUserTokens,
   getOAuthTokens,
 } = require('../services/tokenService');
 const { upsertConnectedMailbox } = require('../services/mailboxService');
 const { grantDailyQuotaOnLogin } = require('../services/quotaService');
 const { sendWelcomeEmail } = require('../services/emailService');
 const { authLimiter } = require('../middleware/security');
+const { encrypt, decrypt, hashToken } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
 const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.JWT_ACCESS_SECRET;
@@ -32,19 +32,18 @@ if (!OAUTH_STATE_SECRET) {
 }
 
 const EXTENSION_CODE_TTL_MS = 2 * 60 * 1000;
-const pendingExtensionSessions = new Map();
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none',
+  sameSite: 'lax',
   maxAge: 60 * 60 * 1000, // 1 hour
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none',
+  sameSite: 'lax',
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   path: '/auth/refresh',
 };
@@ -52,7 +51,7 @@ const REFRESH_COOKIE_OPTIONS = {
 const OAUTH_STATE_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none',
+  sameSite: 'lax',
   maxAge: 10 * 60 * 1000, // 10 minutes
   path: '/auth/google/callback',
 };
@@ -60,7 +59,7 @@ const OAUTH_STATE_COOKIE_OPTIONS = {
 const OAUTH_CONNECT_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'none',
+  sameSite: 'lax',
   maxAge: 10 * 60 * 1000,
   path: '/auth/google/callback',
 };
@@ -111,34 +110,54 @@ function verifyOAuthState(stateToken, expectedNonce) {
   }
 }
 
-function storePendingExtensionSession({ accessToken, refreshToken }) {
+function getRequestIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || null;
+}
+
+async function storePendingExtensionSession({ accessToken, refreshToken, userId }) {
   const code = crypto.randomBytes(32).toString('hex');
-  pendingExtensionSessions.set(code, {
-    accessToken,
-    refreshToken,
-    expiresAt: Date.now() + EXTENSION_CODE_TTL_MS,
-  });
+  const codeHash = hashToken(code);
+  await query('DELETE FROM extension_exchange_codes WHERE expires_at <= NOW()', []);
+  await query(
+    `INSERT INTO extension_exchange_codes (code_hash, access_token, refresh_token, user_id, expires_at)
+     VALUES ($1, $2, $3, $4, NOW() + ($5 || ' milliseconds')::interval)`,
+    [codeHash, encrypt(accessToken), encrypt(refreshToken), userId, String(EXTENSION_CODE_TTL_MS)]
+  );
   return code;
 }
 
-function consumePendingExtensionSession(code) {
-  const pending = pendingExtensionSessions.get(code);
-  if (!pending) return null;
+async function consumePendingExtensionSession(code) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM extension_exchange_codes WHERE expires_at <= NOW()');
 
-  pendingExtensionSessions.delete(code);
-  if (pending.expiresAt <= Date.now()) {
-    return null;
-  }
+    const codeHash = hashToken(code);
+    const result = await client.query(
+      `DELETE FROM extension_exchange_codes
+       WHERE code_hash = $1 AND expires_at > NOW()
+       RETURNING access_token, refresh_token`,
+      [codeHash]
+    );
 
-  return pending;
-}
+    await client.query('COMMIT');
 
-function prunePendingExtensionSessions() {
-  const now = Date.now();
-  for (const [code, pending] of pendingExtensionSessions.entries()) {
-    if (pending.expiresAt <= now) {
-      pendingExtensionSessions.delete(code);
-    }
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      accessToken: decrypt(row.access_token),
+      refreshToken: decrypt(row.refresh_token),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -338,8 +357,7 @@ router.get('/google/callback', authLimiter, async (req, res) => {
     res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTIONS);
 
     if (oauthMode === 'extension') {
-      prunePendingExtensionSessions();
-      const extensionCode = storePendingExtensionSession({ accessToken, refreshToken });
+      const extensionCode = await storePendingExtensionSession({ accessToken, refreshToken, userId: user.id });
       return res.redirect(
         `${process.env.FRONTEND_URL}/extension-auth?code=${extensionCode}`
       );
@@ -403,7 +421,7 @@ router.post(
       return res.status(400).json({ error: 'Invalid exchange code.' });
     }
 
-    const pending = consumePendingExtensionSession(req.body.code);
+    const pending = await consumePendingExtensionSession(req.body.code);
     if (!pending) {
       return res.status(400).json({ error: 'Exchange code is invalid or expired.' });
     }
@@ -484,16 +502,43 @@ router.post('/logout', requireAuth, async (req, res) => {
 
 router.delete('/account', requireAuth, async (req, res) => {
   const userId = req.user.id;
+  const client = await getClient();
   try {
-    await deleteUserTokens(userId);
-    await query('DELETE FROM users WHERE id = $1', [userId]);
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, detail, ip_address)
+       VALUES (NULL, $1, 'self_delete_account', $2, $1, $3, $4)`,
+      [req.user.email || null, userId, JSON.stringify({ initiatedBy: 'user' }), getRequestIp(req)]
+    );
+    await client.query(
+      `DELETE FROM message_original_labels
+       WHERE action_id IN (SELECT id FROM cleanup_actions WHERE user_id = $1)`,
+      [userId]
+    );
+    await client.query('DELETE FROM cleanup_actions WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM scans WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM mailbox_link_events WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM connected_mailboxes WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM playbook_runs WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM playbooks WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM subscription_status WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM user_quota WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM oauth_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM extension_exchange_codes WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    await client.query('COMMIT');
     res.clearCookie('access_token');
     res.clearCookie('refresh_token', { path: '/auth/refresh' });
     logger.info('User account self-deleted (GDPR)', { userId });
     return res.json({ success: true, message: 'Your account and all data have been permanently deleted.' });
   } catch (err) {
+    await client.query('ROLLBACK');
     logger.error('Account deletion failed', err, { userId });
     return res.status(500).json({ error: 'Account deletion failed.' });
+  } finally {
+    client.release();
   }
 });
 

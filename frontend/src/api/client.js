@@ -22,12 +22,6 @@ function clearStoredTokens() {
   localStorage.removeItem('refresh_token');
 }
 
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('access_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
 api.interceptors.response.use(
   res => res,
   async error => {
@@ -35,30 +29,15 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry && error.response?.data?.code === 'TOKEN_EXPIRED') {
       if (isRefreshing) {
         return new Promise((resolve, reject) => failedQueue.push({ resolve, reject }))
-          .then(token => {
-            if (token) original.headers.Authorization = `Bearer ${token}`;
-            return api(original);
-          });
+          .then(() => api(original));
       }
 
       original._retry = true;
       isRefreshing = true;
 
       try {
-        const refreshToken = localStorage.getItem('refresh_token');
-        const payload = refreshToken ? { refresh_token: refreshToken } : {};
-        const res = await axios.post(`${API_URL}/auth/refresh`, payload, { withCredentials: true });
-        const { accessToken, refreshToken: newRT } = res.data || {};
-
-        if (accessToken) {
-          localStorage.setItem('access_token', accessToken);
-          original.headers.Authorization = `Bearer ${accessToken}`;
-        }
-        if (newRT) {
-          localStorage.setItem('refresh_token', newRT);
-        }
-
-        processQueue(null, accessToken || null);
+        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
+        processQueue(null, true);
         return api(original);
       } catch (e) {
         processQueue(e, null);
@@ -87,7 +66,7 @@ export const authApi = {
   getMe: () => api.get('/auth/me', { timeout: 120000 }),
   logout: () => api.post('/auth/logout'),
   deleteAccount: () => api.delete('/auth/account'),
-  refresh: (rt) => api.post('/auth/refresh', rt ? { refresh_token: rt } : {}, { timeout: 120000 }),
+  refresh: () => api.post('/auth/refresh', {}, { timeout: 120000 }),
   getGoogleConnectUrl: () => api.get('/auth/google/connect', { timeout: 120000 }),
 };
 

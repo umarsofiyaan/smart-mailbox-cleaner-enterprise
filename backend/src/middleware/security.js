@@ -47,7 +47,6 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests. Please wait before trying again.' },
   skip: (req) => {
     if (req.path === '/health') return true;
-    if (req.path.startsWith('/cleanup/job/')) return true;
     return false;
   },
 });

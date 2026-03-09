@@ -38,23 +38,20 @@ router.post('/start', requireAuth, scanLimiter, async (req, res) => {
 
   // Pro-only depths
   if (scanDepth !== '12months') {
-    // DEV MODE: bypass with BYPASS_PRO env var
-    if (process.env.BYPASS_PRO !== 'true') {
-      const subResult = await query(
-        "SELECT plan_type, plan_expiry FROM users WHERE id = $1",
-        [userId]
-      );
-      const sub = subResult.rows[0] || {};
-      const isPowerActive = sub.plan_type === 'power' && sub.plan_expiry && new Date(sub.plan_expiry) > new Date();
-      const isPro = isPowerActive || sub.plan_type === 'starter' || sub.plan_type === 'pro';
+    const subResult = await query(
+      "SELECT plan_type, plan_expiry FROM users WHERE id = $1",
+      [userId]
+    );
+    const sub = subResult.rows[0] || {};
+    const isPowerActive = sub.plan_type === 'power' && sub.plan_expiry && new Date(sub.plan_expiry) > new Date();
+    const isPro = isPowerActive || sub.plan_type === 'starter' || sub.plan_type === 'pro';
 
-      if (!isPro) {
-        return res.status(403).json({
-          error: 'Full mailbox scan requires a Pro subscription.',
-          code: 'PRO_REQUIRED',
-          upgradeUrl: `${process.env.FRONTEND_URL}/pricing`,
-        });
-      }
+    if (!isPro) {
+      return res.status(403).json({
+        error: 'Full mailbox scan requires a Pro subscription.',
+        code: 'PRO_REQUIRED',
+        upgradeUrl: `${process.env.FRONTEND_URL}/pricing`,
+      });
     }
   }
 

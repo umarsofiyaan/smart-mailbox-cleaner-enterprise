@@ -28,12 +28,28 @@ router.use(requireAuth, requireAdmin);
 
 // ─── Audit log helper ────────────────────────────────────────────────────────
 
-async function writeAudit(adminId, adminEmail, action, targetUserId, targetEmail, details = {}) {
+function getRequestIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || req.socket?.remoteAddress || null;
+}
+
+async function writeAudit(req, adminId, adminEmail, action, targetUserId, targetEmail, details = {}) {
   try {
     await query(
-      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, details)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [adminId, adminEmail || null, action, targetUserId || null, targetEmail || null, JSON.stringify(details)]
+      `INSERT INTO admin_audit_log (admin_id, admin_email, action, target_user_id, target_email, detail, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        adminId,
+        adminEmail || null,
+        action,
+        targetUserId || null,
+        targetEmail || null,
+        JSON.stringify(details),
+        getRequestIp(req),
+      ]
     );
   } catch (err) {
     logger.warn('Failed to write audit log', { err: err.message, action, targetUserId });
@@ -146,7 +162,7 @@ router.patch('/users/:userId/role', async (req, res) => {
       'UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2',
       [isAdmin, userId]
     );
-    await writeAudit(req.user.id, req.user.email, 'set_role', userId, target.rows[0]?.email, { isAdmin });
+    await writeAudit(req, req.user.id, req.user.email, 'set_role', userId, target.rows[0]?.email, { isAdmin });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update role', err, { userId });
@@ -207,7 +223,7 @@ router.patch('/users/:userId/subscription', async (req, res) => {
       );
     }
 
-    await writeAudit(req.user.id, req.user.email, 'set_subscription', userId, target.rows[0]?.email, { plan, status });
+    await writeAudit(req, req.user.id, req.user.email, 'set_subscription', userId, target.rows[0]?.email, { plan, status });
     return res.json({ success: true });
   } catch (err) {
     logger.error('Admin: failed to update subscription', err, { userId });
@@ -232,11 +248,11 @@ router.patch('/users/:userId/quota', async (req, res) => {
          WHERE id = $1`,
         [userId, credits]
       );
-      await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { deleteCredits: credits });
+      await writeAudit(req, req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { deleteCredits: credits });
     } else {
       // Backward-compatible fallback.
       await adminSetQuota(userId, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
-      await writeAudit(req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
+      await writeAudit(req, req.user.id, req.user.email, 'set_quota', userId, target.rows[0]?.email, { lifetimeAllowance, lifetimeUsed, dailyAllowance });
     }
     return res.json({ success: true });
   } catch (err) {
@@ -273,7 +289,7 @@ router.delete('/users/:userId', async (req, res) => {
       return res.status(404).json({ error: 'User not found or already deleted.' });
     }
 
-    await writeAudit(req.user.id, req.user.email, 'delete_user', userId, target.rows[0]?.email, { soft: true });
+    await writeAudit(req, req.user.id, req.user.email, 'delete_user', userId, target.rows[0]?.email, { soft: true });
     logger.info('Admin: user soft-deleted, all tokens revoked', { adminId: req.user.id, deletedUserId: userId });
 
     return res.json({ success: true, message: 'User deleted and all active sessions revoked.' });
@@ -301,7 +317,7 @@ router.patch('/users/:userId/restore', async (req, res) => {
       return res.status(404).json({ error: 'User not found or not deleted.' });
     }
 
-    await writeAudit(req.user.id, req.user.email, 'restore_user', userId, result.rows[0].email, {});
+    await writeAudit(req, req.user.id, req.user.email, 'restore_user', userId, result.rows[0].email, {});
     logger.info('Admin: user restored', { adminId: req.user.id, restoredUserId: userId });
     return res.json({ success: true, user: result.rows[0] });
   } catch (err) {
@@ -317,21 +333,21 @@ router.get('/mailbox-events', async (req, res) => {
 
   if (String(userId).trim()) {
     params.push(String(userId).trim());
-    clauses.push(`mle.user_id = ${params.length}`);
+    clauses.push(`mle.user_id = $${params.length}`);
   }
 
   if (String(eventType).trim()) {
     params.push(String(eventType).trim());
-    clauses.push(`mle.event_type = ${params.length}`);
+    clauses.push(`mle.event_type = $${params.length}`);
   }
 
   if (String(search).trim()) {
     params.push(`%${String(search).trim().toLowerCase()}%`);
     clauses.push(`(
-      LOWER(COALESCE(mle.google_email, '')) LIKE ${params.length}
-      OR LOWER(COALESCE(u.email, '')) LIKE ${params.length}
-      OR LOWER(COALESCE(u.display_name, '')) LIKE ${params.length}
-      OR LOWER(COALESCE(mle.actor_email, '')) LIKE ${params.length}
+      LOWER(COALESCE(mle.google_email, '')) LIKE $${params.length}
+      OR LOWER(COALESCE(u.email, '')) LIKE $${params.length}
+      OR LOWER(COALESCE(u.display_name, '')) LIKE $${params.length}
+      OR LOWER(COALESCE(mle.actor_email, '')) LIKE $${params.length}
     )`);
   }
 
@@ -347,7 +363,7 @@ router.get('/mailbox-events', async (req, res) => {
        LEFT JOIN users u ON u.id = mle.user_id
        ${whereClause}
        ORDER BY mle.created_at DESC
-       LIMIT ${params.length + 1}`,
+       LIMIT $${params.length + 1}`,
       [...params, Math.min(500, Math.max(1, Number(limit) || 100))]
     );
     return res.json({ events: eventsRes.rows });
@@ -386,7 +402,7 @@ router.patch('/users/:userId/mailboxes/:mailboxId/primary', async (req, res) => 
       actorEmail: req.user.email,
       actorRole: 'admin',
     });
-    await writeAudit(req.user.id, req.user.email, 'set_primary_mailbox', userId, target.rows[0]?.email, { mailboxId });
+    await writeAudit(req, req.user.id, req.user.email, 'set_primary_mailbox', userId, target.rows[0]?.email, { mailboxId });
     return res.json({ success: true });
   } catch (err) {
     if (err.message === 'Mailbox not found.') {
@@ -406,7 +422,7 @@ router.delete('/users/:userId/mailboxes/:mailboxId', async (req, res) => {
       actorEmail: req.user.email,
       actorRole: 'admin',
     });
-    await writeAudit(req.user.id, req.user.email, 'remove_mailbox', userId, target.rows[0]?.email, { mailboxId });
+    await writeAudit(req, req.user.id, req.user.email, 'remove_mailbox', userId, target.rows[0]?.email, { mailboxId });
     return res.json({ success: true });
   } catch (err) {
     if (err.message === 'Mailbox not found.' || err.message === 'At least one mailbox must remain connected.') {
@@ -424,7 +440,7 @@ router.get('/audit', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT al.id, al.action, al.details AS detail, al.created_at,
+      `SELECT al.id, al.action, al.detail, al.created_at,
               al.admin_email, al.target_email,
               al.ip_address
        FROM admin_audit_log al

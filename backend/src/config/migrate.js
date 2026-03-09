@@ -264,6 +264,19 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS detail JSONB DEFAULT '{}';
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'admin_audit_log' AND column_name = 'details'
+  ) THEN
+    EXECUTE 'UPDATE admin_audit_log SET detail = COALESCE(detail, details, ''{}''::jsonb)';
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_audit_log_admin_id       ON admin_audit_log(admin_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_target_user_id ON admin_audit_log(target_user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at     ON admin_audit_log(created_at DESC);
@@ -296,6 +309,21 @@ CREATE TABLE IF NOT EXISTS mailbox_link_events (
 CREATE INDEX IF NOT EXISTS idx_mailbox_events_user_id ON mailbox_link_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_mailbox_events_created_at ON mailbox_link_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mailbox_events_email ON mailbox_link_events(google_email);
+
+-- One-time extension login exchange codes
+CREATE TABLE IF NOT EXISTS extension_exchange_codes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code_hash VARCHAR(64) UNIQUE NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_extension_exchange_code_hash ON extension_exchange_codes(code_hash);
+CREATE INDEX IF NOT EXISTS idx_extension_exchange_user_id ON extension_exchange_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_extension_exchange_expires_at ON extension_exchange_codes(expires_at);
 
 -- ============================================================
 -- Automation (Playbooks + Schedules + Runs)

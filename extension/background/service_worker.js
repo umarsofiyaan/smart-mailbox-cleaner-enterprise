@@ -1,8 +1,26 @@
 // Chrome Extension background service worker (MV3)
 // Handles OAuth flow, token storage, token refresh, and scan polling.
 
-const API_URL = 'https://api.mailboxcleaner.umarsofiyaan.shop';
-const APP_URL = 'https://app.mailboxcleaner.umarsofiyaan.shop';
+const manifest = chrome.runtime.getManifest();
+const configuredHosts = (manifest.host_permissions || []).map(host => host.replace(/\/\*$/, ''));
+const API_URL = configuredHosts.find(host => {
+  try {
+    return new URL(host).hostname.startsWith('api.');
+  } catch {
+    return false;
+  }
+});
+const APP_URL = configuredHosts.find(host => {
+  try {
+    return !new URL(host).hostname.startsWith('api.');
+  } catch {
+    return false;
+  }
+});
+
+if (!API_URL || !APP_URL) {
+  throw new Error('Extension host_permissions must include API and app origins.');
+}
 
 async function getTokens() {
   return new Promise(resolve => {

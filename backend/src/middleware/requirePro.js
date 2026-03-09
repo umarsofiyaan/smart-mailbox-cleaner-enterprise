@@ -1,13 +1,5 @@
 // src/middleware/requirePro.js
-// DEV MODE: Pro paywall bypassed for testing
-// ⚠️ Remove this before going to production!
-
 async function requirePro(req, res, next) {
-  if (process.env.BYPASS_PRO === 'true') {
-    req.subscription = { plan: 'pro', status: 'active', plan_type: 'pro' };
-    return next();
-  }
-
   const { query } = require('../config/database');
   const result = await query(
     `SELECT plan_type, plan_expiry FROM users WHERE id = $1`,

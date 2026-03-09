@@ -4,7 +4,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { billingLimiter } = require('../middleware/security');
-const { applyPurchasedPlan, getQuotaSummary } = require('../services/quotaService');
+const { getQuotaSummary } = require('../services/quotaService');
 const { getUserPricingContext, cachePricingInSession } = require('../services/pricingService');
 const {
   createCheckoutSession,
@@ -46,25 +46,10 @@ router.post('/checkout', requireAuth, billingLimiter, async (req, res) => {
 });
 
 router.post('/purchase', requireAuth, billingLimiter, async (req, res) => {
-  if (process.env.ALLOW_DIRECT_PURCHASE !== 'true') {
-    return res.status(403).json({
-      error: 'DIRECT_PURCHASE_DISABLED',
-      message: 'Use Razorpay checkout and payment verification flow.',
-    });
-  }
-
-  const planType = String(req.body?.plan_type || '').toLowerCase();
-  if (!['starter', 'pro', 'power'].includes(planType)) {
-    return res.status(400).json({ error: 'Invalid plan_type. Must be starter, pro, or power.' });
-  }
-
-  try {
-    const quota = await applyPurchasedPlan(req.user.id, planType);
-    return res.json({ success: true, planType, quota });
-  } catch (err) {
-    logger.error('Plan purchase activation failed', err, { userId: req.user.id, planType });
-    return res.status(500).json({ error: err.message || 'Failed to activate plan.' });
-  }
+  return res.status(410).json({
+    error: 'DIRECT_PURCHASE_REMOVED',
+    message: 'Use the checkout and payment verification flow.',
+  });
 });
 
 router.post('/verify', requireAuth, billingLimiter, async (req, res) => {
