@@ -87,12 +87,13 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
       growthDisplay = 'Not growing 📉';
     }
   } else {
-    // Falling back to scan.storage (no liveStorage available)
+    // Falling back to scan.storage (liveStorage unavailable / Drive API failed)
     if (dailyGrowthBytes > 0) {
       growthDisplay = `+${formatBytes(dailyGrowthBytes)}/day`;
     } else {
-      growthDisplay = 'Measuring…';
-      growthSub = 'Checking your growth rate';
+      // No growth data in scan record — need a 2nd scan to compute rate
+      growthDisplay = 'Run another scan';
+      growthSub = 'to measure growth rate';
     }
   }
 
@@ -112,7 +113,8 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
   } else if (hasLiveData) {
     daysDisplay = 'Not filling up ✓';
   } else {
-    daysDisplay = 'N/A';
+    // No live data, no growth history — need another scan
+    daysDisplay = 'Need another scan';
   }
 
   return (
@@ -163,12 +165,21 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
         </div>
       </div>
 
-      {/* Live data source indicator */}
+      {/* Data source indicator */}
       {hasLiveData && !liveStorageLoading && (
         <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-          Live data · updated just now
-          {dataPointCount !== null && ` · ${dataPointCount} data point${dataPointCount !== 1 ? 's' : ''}`}
+          {liveStorage?.source === 'scan_fallback' ? (
+            <>
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              From last scan · run a new scan to refresh
+            </>
+          ) : (
+            <>
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+              Live data · updated just now
+              {dataPointCount !== null && ` · ${dataPointCount} data point${dataPointCount !== 1 ? 's' : ''}`}
+            </>
+          )}
         </p>
       )}
 
