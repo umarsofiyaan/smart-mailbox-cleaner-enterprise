@@ -1,6 +1,13 @@
-// src/services/stripeService.js (Razorpay)
-// Handles checkout, payment verification, webhooks, and subscription status.
-// Plan model: starter, pro, power.
+// src/services/stripeService.js (Razorpay — One-Time Orders)
+// Handles one-time payment checkout, verification, and webhooks.
+// NO subscriptions, NO recurring charges, NO monthly billing.
+//
+// Flow:
+//   1. POST /subscription/checkout  → createCheckoutSession() → razorpay.orders.create()
+//   2. Frontend opens Razorpay modal with order_id
+//   3. User pays → Razorpay calls handler with payment_id + order_id + signature
+//   4. POST /subscription/verify    → verifyAndActivatePayment() → applyPurchasedPlan()
+//   5. Webhook payment.captured     → double-confirms activation (idempotent)
 
 const Razorpay = require('razorpay');
 const crypto   = require('crypto');
@@ -13,203 +20,135 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-const FALLBACK_PLAN_ID = process.env.RAZORPAY_PLAN_ID || 'plan_default';
+// ─── Plan amounts ─────────────────────────────────────────────────────────────
+// Amounts in paise (INR). Full = international users charged in INR via Razorpay.
+// These are one-time charges — no plan_id needed, just an order amount.
 
-function normalizePricingRegion(region) {
-  const value = String(region || '').toLowerCase();
-  if (value === 'reduced' || value === 'low') return 'reduced';
-  return 'full';
-}
+function getPlanAmountPaise(planType, pricingRegion = 'full') {
+  const reduced = String(pricingRegion).toLowerCase() === 'reduced';
+  const suffix  = reduced ? 'LOW' : 'FULL';
 
-function buildPlanConfig(pricingRegion = 'full') {
-  const reduced = normalizePricingRegion(pricingRegion) === 'reduced';
-  const suffix = reduced ? 'LOW' : 'FULL';
+  const envKey  = `RAZORPAY_${planType.toUpperCase()}_AMOUNT_PAISE_${suffix}`;
+  if (process.env[envKey]) return Number(process.env[envKey]);
 
-  const getPlanId = (base) =>
-    process.env[`RAZORPAY_PLAN_ID_${base}_${suffix}`]
-    || process.env[`RAZORPAY_PLAN_ID_${base}`]
-    || FALLBACK_PLAN_ID;
-
-  const getAmount = (base, fallback) =>
-    Number(
-      process.env[`RAZORPAY_${base}_AMOUNT_PAISE_${suffix}`]
-      || process.env[`RAZORPAY_${base}_AMOUNT_PAISE`]
-      || fallback
-    );
-
-  return {
-    starter: {
-      label: 'Starter',
-      periodMonths: 1,
-      totalCount: 1,
-      amountPaise: getAmount('STARTER', reduced ? 149 : 299),
-      planId: getPlanId('STARTER'),
-    },
-    pro: {
-      label: 'Pro',
-      periodMonths: 1,
-      totalCount: 1,
-      amountPaise: getAmount('PRO', reduced ? 349 : 799),
-      planId: getPlanId('PRO'),
-    },
-    power: {
-      label: 'Power',
-      periodMonths: 1,
-      totalCount: 1,
-      amountPaise: getAmount('POWER', reduced ? 699 : 1499),
-      planId: getPlanId('POWER'),
-    },
+  // Hardcoded fallbacks (paise)
+  const AMOUNTS = {
+    full:    { starter: 29900, pro: 79900, power: 149900 },  // ₹299 / ₹799 / ₹1,499
+    reduced: { starter: 14900, pro: 34900, power:  69900 },  // ₹149 / ₹349 / ₹699
   };
+
+  return AMOUNTS[reduced ? 'reduced' : 'full'][planType] || 79900;
 }
 
-function buildPlanTypeLookup() {
-  const byId = new Map();
-  ['full', 'reduced'].forEach((region) => {
-    const conf = buildPlanConfig(region);
-    Object.entries(conf).forEach(([planType, meta]) => {
-      if (meta.planId) byId.set(meta.planId, planType);
-    });
-  });
-  return byId;
+function getPlanLabel(planType) {
+  return { starter: 'Starter', pro: 'Pro', power: 'Power' }[planType] || 'Plan';
 }
-
-const PLAN_TYPE_BY_ID = buildPlanTypeLookup();
 
 function normalizePlanType(input) {
-  const value = String(input || '').toLowerCase();
-  if (value === 'starter' || value === 'pro' || value === 'power') return value;
-  return 'pro';
+  const v = String(input || '').toLowerCase();
+  return ['starter', 'pro', 'power'].includes(v) ? v : 'pro';
 }
 
-function getPlanTypeFromPlanId(planId) {
-  if (!planId) return null;
-  const mapped = PLAN_TYPE_BY_ID.get(planId);
-  if (mapped) return mapped;
-  const normalized = String(planId).toLowerCase();
-  if (normalized.includes('starter')) return 'starter';
-  if (normalized.includes('power')) return 'power';
-  if (normalized.includes('pro')) return 'pro';
-  return null;
-}
-
-/**
- * Calculate period end from plan.
- * Used as a fallback when Razorpay doesn't return current_end.
- */
-function calcPeriodEnd(planId) {
-  const planType = getPlanTypeFromPlanId(planId);
-  const plan = buildPlanConfig('full')[planType] || buildPlanConfig('reduced')[planType];
-  const months = plan?.periodMonths || 1;
-  const end = new Date();
-  end.setMonth(end.getMonth() + months);
-  return end;
+function normalizePricingRegion(region) {
+  const v = String(region || '').toLowerCase();
+  return v === 'reduced' || v === 'low' ? 'reduced' : 'full';
 }
 
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 
-async function createCheckoutSession(userId, email, displayName, requestedPlanId, options = {}) {
-  const pendingPlanType = normalizePlanType(requestedPlanId);
+async function createCheckoutSession(userId, email, displayName, requestedPlanType, options = {}) {
+  const planType      = normalizePlanType(requestedPlanType);
   const pricingRegion = normalizePricingRegion(options.pricingRegion);
-  const planConfig = buildPlanConfig(pricingRegion);
-  const planMeta = planConfig[pendingPlanType] || planConfig.pro;
-  const planId = planMeta.planId;
+  const amountPaise   = getPlanAmountPaise(planType, pricingRegion);
+  const label         = getPlanLabel(planType);
 
   try {
-    const subscription = await razorpay.subscriptions.create({
-      plan_id:         planId,
-      customer_notify: 1,
-      quantity:        1,
-      total_count:     planMeta.totalCount,
-      notes:           { userId, email, planId, planType: pendingPlanType, pricingRegion },
+    // Create a Razorpay Order (one-time payment — NOT a subscription)
+    const order = await razorpay.orders.create({
+      amount:   amountPaise,
+      currency: 'INR',
+      receipt:  `smbc_${planType}_${userId.slice(0, 8)}_${Date.now()}`,
+      notes: {
+        userId,
+        email,
+        planType,
+        pricingRegion,
+      },
     });
 
-    // Store subscription ID in BOTH columns so webhooks can find it
-    // regardless of whether verify has been called yet (race condition fix).
+    // Store the order ID so the verify endpoint and webhook can look it up
     await query(
       `INSERT INTO subscription_status
          (user_id, stripe_customer_id, stripe_subscription_id, plan, status, pending_plan_type)
        VALUES ($1, $2, $2, 'free', 'pending', $3)
        ON CONFLICT (user_id) DO UPDATE
-         SET stripe_customer_id    = $2,
-             stripe_subscription_id = $2,
-             pending_plan_type      = $3,
-             updated_at            = NOW()`,
-      [userId, subscription.id, pendingPlanType]
+         SET stripe_customer_id     = $2,
+             stripe_subscription_id  = $2,
+             pending_plan_type       = $3,
+             status                  = 'pending',
+             updated_at              = NOW()`,
+      [userId, order.id, planType]
     );
 
-    logger.info('Checkout session created', {
-      userId,
-      subscriptionId: subscription.id,
-      planId,
-      planLabel: planMeta.label,
-      pricingRegion,
-    });
+    logger.info('Razorpay order created', { userId, orderId: order.id, planType, amountPaise, pricingRegion });
 
     return {
-      subscriptionId: subscription.id,
-      keyId:          process.env.RAZORPAY_KEY_ID,
-      amount:         planMeta.amountPaise,
-      currency:       'INR',
-      name:           'Smart Mailbox Cleaner',
-      description:    `${planMeta.label} Plan`,
+      orderId:      order.id,         // used as order_id in Razorpay modal
+      keyId:        process.env.RAZORPAY_KEY_ID,
+      amount:       amountPaise,
+      currency:     'INR',
+      name:         'Smart Mailbox Cleaner',
+      description:  `${label} Plan — one-time`,
       email,
-      planType:       pendingPlanType,
+      planType,
       pricingRegion,
     };
   } catch (err) {
-    logger.error('Failed to create checkout session', err, { userId, email, planId });
+    logger.error('Failed to create Razorpay order', err, { userId, planType });
     throw err;
   }
 }
 
 // ─── Payment Verification ─────────────────────────────────────────────────────
+// Called immediately after the Razorpay modal succeeds in the browser.
+// Verifies HMAC signature then grants the purchased plan credits.
 
 async function verifyAndActivatePayment(userId, {
   razorpay_payment_id,
-  razorpay_subscription_id,
+  razorpay_order_id,
   razorpay_signature,
 }) {
   try {
-    // Verify HMAC signature — always non-negotiable
-    const body = razorpay_payment_id + '|' + razorpay_subscription_id;
+    // Verify HMAC — order_id + "|" + payment_id for one-time orders
+    const body = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest('hex');
 
     if (expectedSignature !== razorpay_signature) {
-      throw new Error('Payment signature verification failed.');
+      throw new Error('Payment signature verification failed. Do not tamper with payment data.');
     }
 
-    // Fetch the subscription from Razorpay to get the actual plan and period end.
-    // This avoids trusting any frontend-sent plan information for security.
-    let periodEnd;
-    let detectedPlanId;
-    try {
-      const rzpSub = await razorpay.subscriptions.fetch(razorpay_subscription_id);
-      detectedPlanId = rzpSub.plan_id;
-      // Razorpay returns current_end as a Unix timestamp
-      if (rzpSub.current_end) {
-        periodEnd = new Date(rzpSub.current_end * 1000);
-      } else {
-        periodEnd = calcPeriodEnd(detectedPlanId);
-      }
-    } catch (fetchErr) {
-      logger.warn('Could not fetch subscription from Razorpay — using plan-based period', {
-        err: fetchErr.message,
-      });
-      periodEnd = calcPeriodEnd(buildPlanConfig('full').pro.planId);
-    }
-
+    // Determine plan type from our DB record (never trust the frontend for this)
     const pendingRes = await query(
-      `SELECT pending_plan_type
-       FROM subscription_status
-       WHERE user_id = $1`,
+      `SELECT pending_plan_type FROM subscription_status WHERE user_id = $1`,
       [userId]
     );
-    const detectedPlanType = getPlanTypeFromPlanId(detectedPlanId);
-    const planType = normalizePlanType(pendingRes.rows[0]?.pending_plan_type || detectedPlanType);
 
+    // Double-check against the order's notes in Razorpay as fallback
+    let planType = pendingRes.rows[0]?.pending_plan_type;
+    if (!planType) {
+      try {
+        const order = await razorpay.orders.fetch(razorpay_order_id);
+        planType = normalizePlanType(order.notes?.planType);
+      } catch (fetchErr) {
+        logger.warn('Could not fetch order from Razorpay — defaulting to pro', { err: fetchErr.message });
+        planType = 'pro';
+      }
+    }
+
+    planType = normalizePlanType(planType);
     await applyPurchasedPlan(userId, planType);
 
     await query(
@@ -217,22 +156,15 @@ async function verifyAndActivatePayment(userId, {
        SET plan                   = $4,
            status                 = 'active',
            stripe_subscription_id  = $1,
-           current_period_end     = $2,
+           current_period_end     = NULL,
            pending_plan_type      = NULL,
            updated_at             = NOW()
        WHERE user_id = $3`,
-      [razorpay_subscription_id, periodEnd, userId, planType]
+      [razorpay_order_id, null, userId, planType]
     );
 
-    logger.info('Razorpay subscription activated via verify', {
-      userId,
-      razorpay_subscription_id,
-      detectedPlanId,
-      planType,
-      periodEnd,
-    });
-
-    return { success: true };
+    logger.info('Payment verified and plan activated', { userId, razorpay_order_id, razorpay_payment_id, planType });
+    return { success: true, planType };
   } catch (err) {
     logger.error('Payment verification failed', err, { userId });
     throw err;
@@ -240,6 +172,9 @@ async function verifyAndActivatePayment(userId, {
 }
 
 // ─── Webhook Handler ──────────────────────────────────────────────────────────
+// Handles Razorpay webhook events.
+// payment.captured is the primary success event for one-time orders.
+// Acts as a fallback/double-confirm if verify was never called.
 
 async function handleWebhook(rawBody, signature) {
   try {
@@ -255,136 +190,68 @@ async function handleWebhook(rawBody, signature) {
 
     switch (event.event) {
 
-      // ── Subscription activated / renewed ─────────────────────────────────
-      case 'subscription.activated':
-      case 'subscription.charged': {
-        const sub = event.payload.subscription.entity;
-        const inferredPlanType = normalizePlanType(getPlanTypeFromPlanId(sub.plan_id) || 'pro');
-        const periodEnd = sub.current_end
-          ? new Date(sub.current_end * 1000)
-          : calcPeriodEnd(sub.plan_id);
+      // ── One-time payment captured (primary success event) ─────────────────
+      case 'payment.captured': {
+        const payment = event.payload.payment?.entity;
+        if (!payment) break;
 
-        const result = await query(
+        const orderId  = payment.order_id;
+        const notes    = payment.notes || {};
+        const userId   = notes.userId;
+
+        if (!userId) {
+          logger.warn('webhook payment.captured: no userId in notes', { orderId });
+          break;
+        }
+
+        // Check if already activated (verify endpoint may have run first)
+        const existing = await query(
+          `SELECT status, pending_plan_type FROM subscription_status WHERE user_id = $1`,
+          [userId]
+        );
+        const row = existing.rows[0];
+
+        if (row?.status === 'active') {
+          logger.info('Webhook: payment.captured — already active, skipping', { userId, orderId });
+          break;
+        }
+
+        // Activate — idempotent fallback if verify wasn't called
+        const planType = normalizePlanType(notes.planType || row?.pending_plan_type || 'pro');
+        await applyPurchasedPlan(userId, planType);
+
+        await query(
           `UPDATE subscription_status
-           SET plan                   = COALESCE(pending_plan_type, $3),
+           SET plan                   = $3,
                status                 = 'active',
-               stripe_subscription_id  = $1,
-               current_period_end     = $2,
+               stripe_subscription_id  = $2,
                pending_plan_type      = NULL,
                updated_at             = NOW()
-           WHERE stripe_subscription_id = $1
-              OR stripe_customer_id     = $1
-           RETURNING user_id, plan`,
-          [sub.id, periodEnd, inferredPlanType]
+           WHERE user_id = $1`,
+          [userId, orderId, planType]
         );
 
-        if (result.rowCount === 0) {
-          logger.warn('Webhook: no subscription record found to activate', { subId: sub.id });
-        } else {
-          await applyPurchasedPlan(result.rows[0].user_id, normalizePlanType(result.rows[0].plan));
-          logger.info('Webhook: subscription activated/renewed', {
-            subId: sub.id,
-            userId: result.rows[0].user_id,
-            planType: result.rows[0].plan,
-            planId: sub.plan_id,
-            periodEnd,
-          });
-        }
+        logger.info('Webhook: payment.captured — plan activated', { userId, orderId, planType });
         break;
       }
 
-      // ── Cancelled — keep paid access until period ends (grace period) ─────
-      case 'subscription.cancelled': {
-        const sub = event.payload.subscription.entity;
-
-        const result = await query(
-          `UPDATE subscription_status
-           SET status     = 'canceled',
-               updated_at = NOW()
-           WHERE stripe_subscription_id = $1
-              OR stripe_customer_id     = $1
-           RETURNING user_id, current_period_end`,
-          [sub.id]
-        );
-
-        if (result.rowCount > 0) {
-          logger.info('Webhook: subscription cancelled — paid access kept until period end', {
-            userId:      result.rows[0].user_id,
-            accessUntil: result.rows[0].current_period_end,
-          });
-        }
-        break;
-      }
-
-      // ── Fully expired after cancel ────────────────────────────────────────
-      case 'subscription.expired': {
-        const sub = event.payload.subscription.entity;
-
-        const result = await query(
-          `UPDATE subscription_status
-           SET plan       = 'free',
-               status     = 'canceled',
-               updated_at = NOW()
-           WHERE stripe_subscription_id = $1
-              OR stripe_customer_id     = $1
-           RETURNING user_id`,
-          [sub.id]
-        );
-
-        if (result.rowCount > 0) {
-          logger.info('Webhook: subscription expired — downgraded to free', {
-            userId: result.rows[0].user_id,
-          });
-        }
-        break;
-      }
-
-      // ── Halted (payment failed after retries) → immediate downgrade ───────
-      case 'subscription.halted': {
-        const sub = event.payload.subscription.entity;
-
-        const result = await query(
-          `UPDATE subscription_status
-           SET plan       = 'free',
-               status     = 'past_due',
-               updated_at = NOW()
-           WHERE stripe_subscription_id = $1
-              OR stripe_customer_id     = $1
-           RETURNING user_id`,
-          [sub.id]
-        );
-
-        if (result.rowCount > 0) {
-          logger.warn('Webhook: subscription halted — downgraded to free', {
-            userId: result.rows[0].user_id,
-          });
-        }
-        break;
-      }
-
-      // ── Individual payment failed (retries still pending) → mark past_due ─
+      // ── Payment failed ────────────────────────────────────────────────────
       case 'payment.failed': {
         const payment = event.payload.payment?.entity;
-        const subId   = payment?.subscription_id;
+        const orderId = payment?.order_id;
+        const notes   = payment?.notes || {};
+        const userId  = notes.userId;
 
-        if (!subId) { logger.warn('payment.failed: no subscription_id'); break; }
+        if (!userId) break;
 
-        const result = await query(
+        await query(
           `UPDATE subscription_status
-           SET status     = 'past_due',
-               updated_at = NOW()
-           WHERE stripe_subscription_id = $1
-              OR stripe_customer_id     = $1
-           RETURNING user_id`,
-          [subId]
+           SET status = 'failed', updated_at = NOW()
+           WHERE user_id = $1 AND status = 'pending'`,
+          [userId]
         );
 
-        if (result.rowCount > 0) {
-          logger.warn('Webhook: payment failed — marked past_due (Razorpay will retry)', {
-            userId:    result.rows[0].user_id,
-            paymentId: payment?.id,
-          });
-        }
+        logger.warn('Webhook: payment.failed', { userId, orderId });
         break;
       }
 
@@ -399,102 +266,27 @@ async function handleWebhook(rawBody, signature) {
   }
 }
 
-// ─── Portal ───────────────────────────────────────────────────────────────────
-// Razorpay has no hosted portal — redirect to in-app subscription management.
-
-async function createPortalSession(userId) {
-  return { url: `${process.env.FRONTEND_URL}/dashboard?manage=subscription` };
-}
-
-// ─── Status ───────────────────────────────────────────────────────────────────
+// ─── Status / Portal ──────────────────────────────────────────────────────────
 
 async function getSubscriptionStatus(userId) {
-  try {
-    const usageRes = await query(
-      `SELECT plan_type, plan_expiry
-       FROM users
-       WHERE id = $1`,
-      [userId]
-    );
-    const usage = usageRes.rows[0] || {};
-    const isPowerActive = usage.plan_type === 'power' && usage.plan_expiry && new Date(usage.plan_expiry) > new Date();
-
-    const result = await query(
-      `SELECT plan, status, current_period_end FROM subscription_status WHERE user_id = $1`,
-      [userId]
-    );
-
-    if (!result.rows[0]) {
-      const paid = isPowerActive || usage.plan_type === 'starter' || usage.plan_type === 'pro';
-      return { plan: usage.plan_type || 'free', status: 'active', isPro: paid, planExpiry: usage.plan_expiry || null };
-    }
-
-    const row = result.rows[0];
-    const inGracePeriod =
-      row.status === 'canceled' &&
-      row.current_period_end &&
-      new Date(row.current_period_end) > new Date();
-
-    const isPro = isPowerActive || usage.plan_type === 'starter' || usage.plan_type === 'pro' || ((row.plan === 'pro' && row.status === 'active') || inGracePeriod);
-
-    return {
-      plan:             usage.plan_type || row.plan,
-      status:           row.status,
-      currentPeriodEnd: row.current_period_end,
-      planExpiry:       usage.plan_expiry || null,
-      isPro,
-      inGracePeriod,
-    };
-  } catch (err) {
-    logger.error('Failed to get subscription status', err, { userId });
-    return { plan: 'free', status: 'active', isPro: false };
-  }
-}
-
-// ─── Cancel Subscription (admin-initiated) ────────────────────────────────────
-// Cancels the Razorpay subscription immediately and downgrades DB to free.
-// cancel_at_cycle_end = false means cancel NOW (not at period end).
-
-async function cancelSubscription(userId) {
   const result = await query(
-    `SELECT stripe_subscription_id, current_period_end
-     FROM subscription_status WHERE user_id = $1`,
-    [userId]
-  );
-
-  const row = result.rows[0];
-  const subscriptionId = row?.stripe_subscription_id;
-
-  // Cancel on Razorpay if there's a real subscription ID
-  if (subscriptionId && !subscriptionId.startsWith('plan_')) {
-    try {
-      await razorpay.subscriptions.cancel(subscriptionId, false);
-      logger.info('Razorpay subscription cancelled by admin', { userId, subscriptionId });
-    } catch (err) {
-      // Log but don't throw — still downgrade DB even if Razorpay call fails
-      // (subscription may already be cancelled/expired on Razorpay side)
-      logger.warn('Razorpay cancel call failed (proceeding with DB downgrade)', {
-        userId, subscriptionId, err: err.message,
-      });
-    }
-  }
-
-  // Always downgrade DB regardless of Razorpay outcome
-  await query(
-    `UPDATE subscription_status
-     SET plan = 'free', status = 'canceled', updated_at = NOW()
+    `SELECT plan, status, current_period_end, updated_at
+     FROM subscription_status
      WHERE user_id = $1`,
     [userId]
   );
+  return result.rows[0] || { plan: 'free', status: 'none' };
+}
 
-  return { cancelled: true, subscriptionId };
+async function createPortalSession(userId) {
+  // Razorpay has no hosted portal — return in-app billing management URL
+  return { url: `${process.env.FRONTEND_URL}/dashboard?tab=billing` };
 }
 
 module.exports = {
   createCheckoutSession,
   verifyAndActivatePayment,
-  createPortalSession,
   handleWebhook,
   getSubscriptionStatus,
-  cancelSubscription,
+  createPortalSession,
 };
