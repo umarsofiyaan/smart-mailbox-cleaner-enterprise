@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { clsx } from 'clsx';
 import ConfidenceBadge from './ConfidenceBadge';
 
@@ -23,6 +23,99 @@ const ICON_GLYPHS = {
   AdjustmentsIcon: '🎛️',
 };
 
+// ── Tier definitions with tooltip explanations ───────────────────────────────
+
+const TIER_INFO = {
+  HIGH: {
+    label:  'Safe to Delete',
+    emoji:  '✅',
+    pill:   'bg-green-50 text-green-700',
+    header: 'bg-green-50 border-green-100',
+    // Plain-language explanation shown in the info tooltip
+    tooltip: [
+      'No important signals were found on these emails.',
+      '• Not starred or manually labelled by you',
+      '• Not marked Important by Gmail',
+      '• Not sitting unread in your Inbox',
+      '• Sender looks automated (newsletter/notification)',
+      '• Email is old or from a bulk-mail category',
+      'These are very likely safe to delete in bulk.',
+    ],
+  },
+  MEDIUM: {
+    label:  'Likely Safe',
+    emoji:  '⚠️',
+    pill:   'bg-yellow-50 text-yellow-700',
+    header: 'bg-yellow-50 border-yellow-100',
+    tooltip: [
+      'Some minor signals were found — probably fine to delete, but worth a quick scroll.',
+      '• May be sitting in your Inbox (read, but not archived)',
+      '• Could be part of a short thread (1–2 replies)',
+      '• Gmail may have marked it Important',
+      '• Could be a recent email (under 30 days old)',
+      'We recommend a quick glance before deleting.',
+    ],
+  },
+  REVIEW_REQUIRED: {
+    label:  'Needs Review',
+    emoji:  '🔍',
+    pill:   'bg-orange-50 text-orange-700',
+    header: 'bg-orange-50 border-orange-100',
+    tooltip: [
+      'Strong signals suggest these may be important to you.',
+      '• Starred by you — you explicitly saved it',
+      '• Unread in your Inbox — you haven\'t seen it yet',
+      '• Marked Important + still in Inbox by Gmail',
+      '• Part of an active thread (4+ messages)',
+      '• Has a custom label you created',
+      'Review individually before deleting — unchecking them excludes them.',
+    ],
+  },
+};
+
+// ── Tooltip component ────────────────────────────────────────────────────────
+
+function InfoTooltip({ tier }) {
+  const [visible, setVisible] = useState(false);
+  const ref = useRef(null);
+  const info = TIER_INFO[tier];
+  if (!info) return null;
+
+  return (
+    <span className="relative inline-flex items-center" ref={ref}>
+      <button
+        type="button"
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        className="ml-1 w-4 h-4 rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300 hover:text-gray-700 inline-flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0 cursor-help focus:outline-none"
+        aria-label={`How we decided "${info.label}"`}
+      >
+        i
+      </button>
+
+      {visible && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-gray-900 text-white rounded-xl shadow-2xl p-3 pointer-events-none">
+          {/* Arrow */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+
+          <p className="text-xs font-semibold mb-1.5">
+            How we decide "{info.label}"
+          </p>
+          {info.tooltip.map((line, i) => (
+            <p key={i} className={clsx('text-xs leading-relaxed', i === 0 ? 'text-gray-300 mb-1.5' : 'text-gray-400')}>
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ── Format helpers ───────────────────────────────────────────────────────────
+
 function formatMB(bytes) {
   if (!bytes) return '0 MB';
   const mb = bytes / (1024 * 1024);
@@ -42,59 +135,40 @@ function truncate(str, n) {
   return str.length > n ? str.slice(0, n) + '...' : str;
 }
 
-// ── Per-tier config ──────────────────────────────────────────────────────────
+// ── Single email row ─────────────────────────────────────────────────────────
 
-const TIER_CONFIG = {
-  HIGH: {
-    label:       'Safe to Delete',
-    icon:        '✅',
-    pillBg:      'bg-green-100',
-    pillText:    'text-green-700',
-    headerBg:    'bg-green-50',
-    badgeCls:    'bg-green-100 text-green-700',
-    description: 'Clearly safe to remove',
-  },
-  MEDIUM: {
-    label:       'Likely Safe',
-    icon:        '⚠️',
-    pillBg:      'bg-yellow-100',
-    pillText:    'text-yellow-700',
-    headerBg:    'bg-yellow-50',
-    badgeCls:    'bg-yellow-100 text-yellow-700',
-    description: 'Probably safe — glance through first',
-  },
-  REVIEW_REQUIRED: {
-    label:       'Needs Review',
-    icon:        '🔍',
-    pillBg:      'bg-orange-100',
-    pillText:    'text-orange-700',
-    headerBg:    'bg-orange-50',
-    badgeCls:    'bg-orange-100 text-orange-700',
-    description: 'Check before deleting',
-  },
-};
+function EmailRow({ msg, checked, onToggle }) {
+  const info = TIER_INFO[msg.tier] || TIER_INFO.REVIEW_REQUIRED;
 
-function ReviewEmailRow({ msg, checked, onToggle }) {
-  const cfg = TIER_CONFIG[msg.tier] || TIER_CONFIG.REVIEW_REQUIRED;
   return (
     <label className="flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50">
       <input
         type="checkbox"
         checked={checked}
         onChange={() => onToggle(msg.id)}
-        className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+        className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
       />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-gray-800 font-medium truncate leading-snug">
           {truncate(msg.subject, 80)}
         </p>
         <p className="text-xs text-gray-400 truncate mt-0.5">
-          {truncate(msg.from, 60)} &middot; {formatDate(msg.internalDate)}
+          {truncate(msg.from, 55)} · {formatDate(msg.internalDate)}
         </p>
+        {/* Signal chips for review-required emails */}
+        {msg.tier === 'REVIEW_REQUIRED' && msg.signals && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {msg.signals.starred       && <span className="text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded">⭐ Starred</span>}
+            {msg.signals.unreadInbox   && <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded">📬 Unread</span>}
+            {msg.signals.importantInInbox && <span className="text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded">📌 Important</span>}
+            {msg.signals.activeThread  && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">💬 {msg.signals.threadCount} replies</span>}
+            {msg.signals.hasCustomLabel && <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">🏷️ Labelled</span>}
+          </div>
+        )}
       </div>
       <div className="flex-shrink-0 flex flex-col items-end gap-1">
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.badgeCls}`}>
-          {cfg.icon} {cfg.label}
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${info.pill}`}>
+          {info.emoji} {info.label}
         </span>
         <span className="text-xs text-gray-400">{formatMB(msg.sizeEstimate)}</span>
       </div>
@@ -102,72 +176,65 @@ function ReviewEmailRow({ msg, checked, onToggle }) {
   );
 }
 
-// ── 3-tier breakdown bar + legend ────────────────────────────────────────────
+// ── Tier section (collapsible group) ─────────────────────────────────────────
 
-function TierBreakdown({ highCount, mediumCount, reviewCount, total, sampleSize }) {
-  if (!total) return null;
+function TierSection({ tier, messages, selectedIds, onToggle, onSelectAll, onClearAll }) {
+  const [open, setOpen] = useState(false);
+  const info = TIER_INFO[tier];
+  const selectedCount = messages.filter(m => selectedIds.has(m.id)).length;
+  const allSelected = selectedCount === messages.length;
 
-  const tiers = [
-    { key: 'HIGH',            count: highCount,   ...TIER_CONFIG.HIGH },
-    { key: 'MEDIUM',          count: mediumCount, ...TIER_CONFIG.MEDIUM },
-    { key: 'REVIEW_REQUIRED', count: reviewCount, ...TIER_CONFIG.REVIEW_REQUIRED },
-  ].filter(t => t.count > 0);
-
-  const isSampled = sampleSize && sampleSize < total;
+  if (messages.length === 0) return null;
 
   return (
-    <div className="mb-4">
-      {/* Stacked progress bar */}
-      <div className="flex rounded-full overflow-hidden h-2 mb-3 bg-gray-100">
-        {highCount > 0 && (
-          <div
-            className="bg-green-400 transition-all"
-            style={{ width: `${(highCount / total) * 100}%` }}
-            title={`Safe to Delete: ${highCount.toLocaleString()}`}
-          />
-        )}
-        {mediumCount > 0 && (
-          <div
-            className="bg-yellow-400 transition-all"
-            style={{ width: `${(mediumCount / total) * 100}%` }}
-            title={`Likely Safe: ${mediumCount.toLocaleString()}`}
-          />
-        )}
-        {reviewCount > 0 && (
-          <div
-            className="bg-orange-400 transition-all"
-            style={{ width: `${(reviewCount / total) * 100}%` }}
-            title={`Needs Review: ${reviewCount.toLocaleString()}`}
-          />
-        )}
+    <div className={clsx('border rounded-xl overflow-hidden mb-2', info.header)}>
+      {/* Section header — always visible */}
+      <div
+        className={clsx('px-4 py-2.5 flex items-center justify-between gap-2 cursor-pointer select-none', info.header)}
+        onClick={() => setOpen(v => !v)}
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="text-sm">{info.emoji}</span>
+          <span className="text-xs font-semibold text-gray-800">{info.label}</span>
+          <span className="text-xs text-gray-500">({messages.length.toLocaleString()})</span>
+          <InfoTooltip tier={tier} />
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Quick select buttons — stop propagation so they don't toggle the accordion */}
+          <button
+            onClick={e => { e.stopPropagation(); allSelected ? onClearAll(messages) : onSelectAll(messages); }}
+            className="text-[10px] font-medium text-gray-500 hover:text-gray-700 underline"
+          >
+            {allSelected ? 'Deselect' : 'Select all'}
+          </button>
+          <span className="text-[10px] text-gray-400">{selectedCount}/{messages.length} selected</span>
+          <svg
+            className={clsx('w-4 h-4 text-gray-400 transition-transform duration-150', open && 'rotate-180')}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
       </div>
 
-      {/* Legend */}
-      <div className="space-y-1.5">
-        {tiers.map(tier => (
-          <div key={tier.key} className="flex items-center justify-between">
-            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full ${tier.pillBg} ${tier.pillText}`}>
-              {tier.icon} {tier.label}
-            </span>
-            <span className="text-xs font-bold text-gray-700">
-              ~{tier.count.toLocaleString()}
-              {isSampled && <span className="font-normal text-gray-400"> est.</span>}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {isSampled && (
-        <p className="text-xs text-gray-400 mt-2.5 flex items-center gap-1">
-          <span>ℹ️</span>
-          <span>Tiers estimated from a {sampleSize.toLocaleString()}-email sample of {total.toLocaleString()} total.</span>
-        </p>
+      {/* Email rows */}
+      {open && (
+        <div className="bg-white px-4 divide-y divide-gray-50 max-h-72 overflow-y-auto">
+          {messages.map(msg => (
+            <EmailRow
+              key={msg.id}
+              msg={msg}
+              checked={selectedIds.has(msg.id)}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Main CategoryCard ─────────────────────────────────────────────────────────
 
 export default function CategoryCard({
   category,
@@ -181,10 +248,8 @@ export default function CategoryCard({
   const [reviewOpen, setReviewOpen] = useState(false);
   const colors = COLOR_MAP[category.color] || COLOR_MAP.gray;
 
-  // allMessages is the sampled preview (up to 2,000 emails).
-  // category.messageCount is the TRUE total from Gmail.
   const allMessages   = category.messages || [];
-  const allMessageIds = allMessages.map((m) => m.id);
+  const allMessageIds = allMessages.map(m => m.id);
   const [selectedIds, setSelectedIds] = useState(() => new Set(allMessageIds));
 
   useEffect(() => {
@@ -193,53 +258,65 @@ export default function CategoryCard({
 
   if (category.messageCount === 0) return null;
 
-  const selectedList  = allMessageIds.filter((id) => selectedIds.has(id));
-  const selectedCount = selectedList.length;
-
-  // canDeleteAllByQuery: backend will re-run the Gmail query and delete ALL
-  // matching emails (not just the sampled preview). The real count is
-  // category.messageCount, not selectedCount (sample size).
+  // For query-based cleanup: backend re-runs the Gmail query and deletes ALL
+  // matching emails, not just the ones in the preview array.
   const isQueryCleanup      = category.cleanup?.mode === 'query' && !!category.cleanup?.query;
+  const selectedList        = allMessageIds.filter(id => selectedIds.has(id));
+  const selectedCount       = selectedList.length;
   const canDeleteAllByQuery = isQueryCleanup && selectedCount === allMessageIds.length;
 
-  const hasMessages = allMessageIds.length > 0;
-  const isBusy      = isLoading || isLocked;
+  const isBusy = isLoading || isLocked;
+
+  // Group messages by tier for the accordion
+  const byTier = {
+    HIGH:             allMessages.filter(m => m.tier === 'HIGH'),
+    MEDIUM:           allMessages.filter(m => m.tier === 'MEDIUM'),
+    REVIEW_REQUIRED:  allMessages.filter(m => m.tier === 'REVIEW_REQUIRED'),
+  };
 
   const selectedBytes = useMemo(() => {
     if (selectedCount === allMessageIds.length) return category.totalBytes;
     return allMessages
-      .filter((m) => selectedIds.has(m.id))
+      .filter(m => selectedIds.has(m.id))
       .reduce((sum, m) => sum + Number(m.sizeEstimate || 0), 0);
   }, [allMessages, allMessageIds.length, category.totalBytes, selectedCount, selectedIds]);
 
   function toggleId(id) {
-    setSelectedIds((prev) => {
+    setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   }
+
+  function selectAllMessages(msgs) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      msgs.forEach(m => next.add(m.id));
+      return next;
+    });
+  }
+
+  function clearMessages(msgs) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      msgs.forEach(m => next.delete(m.id));
+      return next;
+    });
+  }
+
   function selectAll() { setSelectedIds(new Set(allMessageIds)); }
   function clearAll()  { setSelectedIds(new Set()); }
 
   function triggerCleanup() {
     if (!selectedCount) return;
-
-    // For query-based cleanup (deletes ALL by Gmail query, not just the sample),
-    // the effective count is the full category.messageCount, not the sample's selectedCount.
     const effectiveTotalCount = canDeleteAllByQuery ? category.messageCount : selectedCount;
-
     const effectiveCount = !isPro && isFreeWithQuota && quotaRemaining > 0
       ? Math.min(effectiveTotalCount, quotaRemaining)
       : effectiveTotalCount;
-
     const selectedIdsCapped = (!isPro && isFreeWithQuota && quotaRemaining > 0)
       ? selectedList.slice(0, quotaRemaining)
       : selectedList;
-
-    // Use query mode only when we aren't quota-limiting (to avoid partial deletes
-    // that would leave the quota count inconsistent with actual deletion).
     const useQueryMode = canDeleteAllByQuery && effectiveCount === category.messageCount;
 
     onCleanup({
@@ -253,17 +330,12 @@ export default function CategoryCard({
     });
   }
 
-  // Display count on the button = full count for query mode, sample selection otherwise
-  const buttonCount = canDeleteAllByQuery ? category.messageCount : selectedCount;
+  const buttonDisplayCount = canDeleteAllByQuery ? category.messageCount : selectedCount;
 
-  const buttonLabel = (() => {
-    if (isLocked)  return 'Cleanup already running...';
-    if (isLoading) return 'Moving to Trash...';
-    if (!isPro && isFreeWithQuota && quotaRemaining > 0 && buttonCount > quotaRemaining) {
-      return `Move ${quotaRemaining.toLocaleString()} to Trash (quota limit)`;
-    }
-    return `Move to Trash (${buttonCount.toLocaleString()})`;
-  })();
+  // Counts — use real tier counts from the backend (now accurate for all emails)
+  const highCount   = category.highCount   || 0;
+  const mediumCount = category.mediumCount || 0;
+  const reviewCount = category.reviewCount || 0;
 
   return (
     <div className={clsx(
@@ -271,7 +343,7 @@ export default function CategoryCard({
       'border-gray-100 hover:shadow-md'
     )}>
 
-      {/* ── Card header ── */}
+      {/* ── Header ── */}
       <div className={clsx('px-5 pt-5 pb-4', colors.bg)}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -287,10 +359,10 @@ export default function CategoryCard({
         </div>
       </div>
 
-      {/* ── Card body ── */}
+      {/* ── Body ── */}
       <div className="px-5 py-4">
 
-        {/* Total counts */}
+        {/* Totals row */}
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-2xl font-bold text-gray-900">{category.messageCount.toLocaleString()}</p>
@@ -302,75 +374,75 @@ export default function CategoryCard({
           </div>
         </div>
 
-        {/* 3-tier breakdown */}
-        <TierBreakdown
-          highCount={category.highCount   || 0}
-          mediumCount={category.mediumCount || 0}
-          reviewCount={category.reviewCount || 0}
-          total={category.messageCount}
-          sampleSize={category.sampleSize}
-        />
+        {/* ── Severity pills with info tooltips ── */}
+        <div className="flex flex-wrap gap-2 text-xs mb-4">
+          {highCount > 0 && (
+            <span className="inline-flex items-center bg-green-50 text-green-700 px-2.5 py-0.5 rounded-full font-medium">
+              ✅ {highCount.toLocaleString()} safe
+              <InfoTooltip tier="HIGH" />
+            </span>
+          )}
+          {mediumCount > 0 && (
+            <span className="inline-flex items-center bg-yellow-50 text-yellow-700 px-2.5 py-0.5 rounded-full font-medium">
+              ⚠️ {mediumCount.toLocaleString()} likely safe
+              <InfoTooltip tier="MEDIUM" />
+            </span>
+          )}
+          {reviewCount > 0 && (
+            <span className="inline-flex items-center bg-orange-50 text-orange-700 px-2.5 py-0.5 rounded-full font-medium">
+              🔍 {reviewCount.toLocaleString()} need review
+              <InfoTooltip tier="REVIEW_REQUIRED" />
+            </span>
+          )}
+        </div>
 
-        {/* Preview toggle */}
-        {hasMessages && (
+        {/* ── View / Review accordion ── */}
+        {allMessages.length > 0 && (
           <>
             <button
-              onClick={() => setReviewOpen((v) => !v)}
-              className="w-full text-xs text-indigo-600 hover:text-indigo-700 font-medium text-left mb-3 flex items-center gap-1.5"
+              onClick={() => setReviewOpen(v => !v)}
+              className="w-full text-xs text-orange-600 hover:text-orange-700 font-medium text-left mb-3 flex items-center gap-1.5"
             >
-              <span>{reviewOpen ? '▲' : '▼'}</span>
-              {reviewOpen ? 'Hide preview' : `Preview sample`}
-              {' '}({allMessageIds.length.toLocaleString()} of {category.messageCount.toLocaleString()})
+              <span>👁️</span>
+              {reviewOpen ? 'Hide' : 'View'} all {category.messageCount.toLocaleString()} emails
             </button>
 
             {reviewOpen && (
-              <div className="mb-4 border border-gray-100 rounded-xl overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-700">
-                      Preview — uncheck emails to exclude from deletion
-                    </p>
-                    {category.sampleSize && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Showing {allMessageIds.length.toLocaleString()} of {category.messageCount.toLocaleString()} (sampled for speed)
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs">
+              <div className="mb-4">
+                {/* Global select / clear */}
+                <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
+                  <span>{selectedCount.toLocaleString()} of {allMessageIds.length.toLocaleString()} selected</span>
+                  <div className="flex gap-3">
                     <button onClick={selectAll} className="text-indigo-600 hover:underline font-medium">Select all</button>
-                    <button onClick={clearAll}  className="text-indigo-600 hover:underline font-medium">Clear</button>
-                    <span className="text-gray-500">{selectedCount.toLocaleString()} selected</span>
-                    <button onClick={() => setReviewOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none font-light">&times;</button>
+                    <button onClick={clearAll}  className="text-indigo-600 hover:underline font-medium">Clear all</button>
                   </div>
                 </div>
 
-                {/* Grouped by tier */}
-                {['HIGH', 'MEDIUM', 'REVIEW_REQUIRED'].map(tier => {
-                  const msgs = allMessages.filter(m => m.tier === tier);
-                  if (!msgs.length) return null;
-                  const cfg = TIER_CONFIG[tier];
-                  return (
-                    <div key={tier}>
-                      <div className={`px-4 py-1.5 flex items-center gap-2 ${cfg.headerBg}`}>
-                        <span className={`text-xs font-semibold ${cfg.pillText}`}>
-                          {cfg.icon} {cfg.label}
-                        </span>
-                        <span className="text-xs text-gray-400">({msgs.length.toLocaleString()})</span>
-                        <span className="text-xs text-gray-400 hidden sm:inline">— {cfg.description}</span>
-                      </div>
-                      <div className="px-4 divide-y divide-gray-50 max-h-60 overflow-y-auto">
-                        {msgs.map((msg) => (
-                          <ReviewEmailRow
-                            key={msg.id}
-                            msg={msg}
-                            checked={selectedIds.has(msg.id)}
-                            onToggle={toggleId}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* 3 accordion sections — one per tier */}
+                <TierSection
+                  tier="HIGH"
+                  messages={byTier.HIGH}
+                  selectedIds={selectedIds}
+                  onToggle={toggleId}
+                  onSelectAll={selectAllMessages}
+                  onClearAll={clearMessages}
+                />
+                <TierSection
+                  tier="MEDIUM"
+                  messages={byTier.MEDIUM}
+                  selectedIds={selectedIds}
+                  onToggle={toggleId}
+                  onSelectAll={selectAllMessages}
+                  onClearAll={clearMessages}
+                />
+                <TierSection
+                  tier="REVIEW_REQUIRED"
+                  messages={byTier.REVIEW_REQUIRED}
+                  selectedIds={selectedIds}
+                  onToggle={toggleId}
+                  onSelectAll={selectAllMessages}
+                  onClearAll={clearMessages}
+                />
               </div>
             )}
           </>
@@ -388,7 +460,7 @@ export default function CategoryCard({
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             )}
           >
-            {buttonLabel}
+            {isLocked ? 'Cleanup already running...' : isLoading ? 'Moving to Trash...' : `Move to Trash (${buttonDisplayCount.toLocaleString()})`}
           </button>
 
         ) : isFreeWithQuota && quotaRemaining > 0 ? (
@@ -403,11 +475,14 @@ export default function CategoryCard({
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'
               )}
             >
-              {buttonLabel}
+              {isLocked ? 'Cleanup already running...' : isLoading ? 'Moving to Trash...'
+                : buttonDisplayCount <= quotaRemaining
+                  ? `Move to Trash (${buttonDisplayCount.toLocaleString()})`
+                  : `Move ${quotaRemaining.toLocaleString()} to Trash (quota limit)`}
             </button>
-            {buttonCount > quotaRemaining && (
+            {buttonDisplayCount > quotaRemaining && (
               <p className="text-xs text-center text-amber-600">
-                You selected {buttonCount.toLocaleString()} emails. Free plan can delete {quotaRemaining.toLocaleString()} now.
+                {buttonDisplayCount.toLocaleString()} emails found. Free plan can delete {quotaRemaining.toLocaleString()} now.
               </p>
             )}
           </div>
@@ -415,20 +490,15 @@ export default function CategoryCard({
         ) : isFreeWithQuota && quotaRemaining === 0 ? (
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center space-y-2">
             <p className="text-xs text-amber-700 font-semibold">Free quota used up</p>
-            <p className="text-xs text-amber-600">You have reached your free deletion credits. Unlock a plan to continue cleanup.</p>
-            <button
-              onClick={triggerCleanup}
-              className="w-full py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
-            >
+            <p className="text-xs text-amber-600">Unlock a plan to continue cleanup.</p>
+            <button onClick={triggerCleanup} className="w-full py-2 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700">
               Unlock cleanup
             </button>
           </div>
 
         ) : (
           <div className="bg-gradient-to-r from-brand-50 to-purple-50 border border-brand-100 rounded-xl p-3 text-center">
-            <p className="text-xs text-gray-600">
-              <span className="font-semibold text-brand-700">Unlock a plan</span> to clean up
-            </p>
+            <p className="text-xs text-gray-600"><span className="font-semibold text-brand-700">Unlock a plan</span> to clean up</p>
           </div>
         )}
       </div>
