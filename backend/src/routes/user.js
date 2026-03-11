@@ -181,30 +181,58 @@ router.get('/storage-growth', requireAuth, async (req, res) => {
       logger.warn('storage-growth: could not fetch live quota — using scan fallback', { err: err.message, userId: req.user.id });
     }
 
-    // Fallback: pull latest scan's storage snapshot when Drive API is unavailable
+    // Fallback: compute growth from scan history when Drive API is unavailable.
+    // Same algorithm as the live path — compare oldest vs newest scan storage readings.
     if (!liveStorageFetched) {
       const fallbackRes = await query(
-        `SELECT storage_used_bytes, storage_quota_bytes, storage_growth_daily_bytes, estimated_days_until_full
+        `SELECT storage_used_bytes, storage_quota_bytes, completed_at
          FROM scans
          WHERE user_id = $1 AND status = 'complete' AND storage_used_bytes > 0
-         ORDER BY completed_at DESC LIMIT 1`,
+         ORDER BY completed_at ASC
+         LIMIT 30`,
         [req.user.id]
       );
-      const fb = fallbackRes.rows[0];
-      if (!fb) {
+
+      const rows = fallbackRes.rows;
+      if (!rows.length) {
         return res.status(503).json({ error: 'Could not fetch storage data. Please try again.' });
       }
-      const fbUsed  = Number(fb.storage_used_bytes)  || 0;
-      const fbQuota = Number(fb.storage_quota_bytes) || (15 * 1024 * 1024 * 1024);
+
+      const latest    = rows[rows.length - 1];
+      const fbUsed    = Number(latest.storage_used_bytes)  || 0;
+      const fbQuota   = Number(latest.storage_quota_bytes) || (15 * 1024 * 1024 * 1024);
+      const fbPercent = fbQuota > 0 ? Math.round((fbUsed / fbQuota) * 100) : 0;
+
+      let fbDailyGrowth   = 0;
+      let fbDaysUntilFull = null;
+
+      if (rows.length >= 2) {
+        const oldest      = rows[0];
+        const newest      = rows[rows.length - 1];
+        const daysBetween = Math.max(
+          1,
+          (new Date(newest.completed_at).getTime() - new Date(oldest.completed_at).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const growth = Number(newest.storage_used_bytes) - Number(oldest.storage_used_bytes);
+
+        if (growth > 0) {
+          fbDailyGrowth   = Math.round(growth / daysBetween);
+          const remaining = fbQuota - fbUsed;
+          fbDaysUntilFull = remaining > 0 && fbDailyGrowth > 0
+            ? Math.min(Math.floor(remaining / fbDailyGrowth), 9999)
+            : null;
+        }
+      }
+
       return res.json({
-        usedBytes:               fbUsed,
-        quotaBytes:              fbQuota,
-        percentUsed:             fbQuota > 0 ? Math.round((fbUsed / fbQuota) * 100) : 0,
-        dailyGrowthBytes:        Number(fb.storage_growth_daily_bytes) || 0,
-        estimatedDaysUntilFull:  fb.estimated_days_until_full ? Number(fb.estimated_days_until_full) : null,
-        isEstimate:              true,
-        dataPointCount:          1,   // signals StorageGauge to show "need more data"
-        source:                  'scan_fallback',
+        usedBytes:              fbUsed,
+        quotaBytes:             fbQuota,
+        percentUsed:            fbPercent,
+        dailyGrowthBytes:       fbDailyGrowth,
+        estimatedDaysUntilFull: fbDaysUntilFull,
+        isEstimate:             true,
+        dataPointCount:         rows.length,
+        source:                 'scan_fallback',
       });
     }
 
