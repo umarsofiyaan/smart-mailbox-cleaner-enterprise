@@ -224,6 +224,14 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       const estimatedCategoryBytes = Math.round(avgBytes * messageIds.length);
       totalFreeableBytes += estimatedCategoryBytes;
 
+      // Scale tier counts from sample to full dataset proportionally
+      const sampleSize = metadata.length;
+      const totalCount = messageIds.length;
+      const sampleRatio = sampleSize > 0 && sampleSize < totalCount ? totalCount / sampleSize : 1;
+      const scaledHighCount   = Math.round((scored.highCount   || 0) * sampleRatio);
+      const scaledMediumCount = Math.round((scored.mediumCount || 0) * sampleRatio);
+      const scaledReviewCount = Math.max(0, totalCount - scaledHighCount - scaledMediumCount);
+
       categoryResults.push({
         key: categoryKey,
         label: categoryDef.label,
@@ -231,7 +239,11 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         icon: categoryDef.icon,
         color: categoryDef.color,
         ...scored,
-        messageCount: messageIds.length,
+        messageCount: totalCount,
+        highCount:    scaledHighCount,
+        mediumCount:  scaledMediumCount,
+        reviewCount:  scaledReviewCount,
+        sampleSize:   sampleSize < totalCount ? sampleSize : undefined,
         totalBytes: estimatedCategoryBytes,
         estimatedMB: parseFloat((estimatedCategoryBytes / (1024 * 1024)).toFixed(2)),
         cleanup: {
@@ -348,6 +360,14 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
       const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
       totalFreeableBytes = Math.round(avgBytes * messageIds.length);
 
+      // Scale tier counts from sample to full dataset proportionally
+      const sampleSizeC = metadata.length;
+      const totalCountC = messageIds.length;
+      const sampleRatioC = sampleSizeC > 0 && sampleSizeC < totalCountC ? totalCountC / sampleSizeC : 1;
+      const scaledHighC   = Math.round((scored.highCount   || 0) * sampleRatioC);
+      const scaledMediumC = Math.round((scored.mediumCount || 0) * sampleRatioC);
+      const scaledReviewC = Math.max(0, totalCountC - scaledHighC - scaledMediumC);
+
       categoryResults = [{
         key: 'custom_filter',
         label: 'Custom Filter',
@@ -355,7 +375,11 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
         icon: 'AdjustmentsIcon',
         color: 'indigo',
         ...scored,
-        messageCount: messageIds.length,
+        messageCount: totalCountC,
+        highCount:    scaledHighC,
+        mediumCount:  scaledMediumC,
+        reviewCount:  scaledReviewC,
+        sampleSize:   sampleSizeC < totalCountC ? sampleSizeC : undefined,
         totalBytes: totalFreeableBytes,
         estimatedMB: parseFloat((totalFreeableBytes / (1024 * 1024)).toFixed(2)),
         cleanup: {
