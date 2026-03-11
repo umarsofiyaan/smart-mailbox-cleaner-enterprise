@@ -7,6 +7,8 @@ import Pricing from './pages/Pricing';
 import Admin from './pages/Admin';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
+import RefundPolicy from './pages/RefundPolicy';
+import CancellationPolicy from './pages/CancellationPolicy';
 import SiteFooter from './components/SiteFooter';
 
 function ProtectedRoute({ children }) {
@@ -65,6 +67,8 @@ function AppLayout() {
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/privacy-policy" element={<Privacy />} />
           <Route path="/terms-of-service" element={<Terms />} />
+          <Route path="/refund-policy" element={<RefundPolicy />} />
+          <Route path="/cancellation-policy" element={<CancellationPolicy />} />
           <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
           <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
           <Route path="/extension-auth" element={<ExtensionAuth />} />
