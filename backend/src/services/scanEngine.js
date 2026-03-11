@@ -14,13 +14,6 @@ const { scoreCategory } = require('./confidenceEngine');
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
 
-/**
- * Gmail search queries for each deletion category.
- * Docs: https://support.google.com/mail/answer/7190
- *
- * All queries intentionally avoid fetching full message bodies.
- * size: filter uses Gmail's estimated size.
- */
 const CATEGORY_QUERIES = {
   large_attachments_10mb: {
     label: 'Large attachments (10MB+)',
@@ -73,57 +66,27 @@ const CATEGORY_QUERIES = {
   },
 };
 
-/**
- * Restrict query to a date window based on scan depth.
- *
- * Rules:
- *  - large_attachments_*  : NEVER restrict by date. Big files from any year are
- *                           worth finding — this is the highest-value cleanup.
- *  - old_emails_3yr       : Already scoped to 'older_than:3y'. Adding 'newer_than:365d'
- *                           creates an IMPOSSIBLE query (can't be both >3yr and <1yr old).
- *                           Skip for '12months'/'24months'; only run for 'all'.
- *  - Everything else      : Add a newer_than window to limit API calls.
- */
 function applyDepthFilter(baseQuery, scanDepth, categoryKey) {
-  // Large attachments: always scan full history — these are the biggest space hogs
-  // and a 3-year-old 50MB email matters just as much as a recent one.
   if (categoryKey === 'large_attachments_10mb' || categoryKey === 'large_attachments_5mb') {
     return baseQuery;
   }
-
-  // old_emails_3yr already has 'older_than:3y'. Adding 'newer_than:365d' (12mo depth)
-  // or 'newer_than:730d' (24mo depth) makes the query impossible → always 0 results.
-  // Only run this category on 'all' depth scans.
   if (categoryKey === 'old_emails_3yr') {
-    return scanDepth === 'all' ? baseQuery : null; // null = skip this category
+    return scanDepth === 'all' ? baseQuery : null;
   }
-
   if (scanDepth === '12months') return `${baseQuery} newer_than:365d`;
   if (scanDepth === '24months') return `${baseQuery} newer_than:730d`;
-  return baseQuery; // 'all' — Pro only
+  return baseQuery;
 }
 
-/**
- * Run a full scan for a user.
- * Updates the scan record in DB as it progresses.
- * 
- * @param {string} scanId - UUID of the scan record
- * @param {string} userId
- * @param {object} tokens - { accessToken, refreshToken }
- * @param {string} scanDepth - '12months' | '24months' | 'all'
- */
 async function runScan(scanId, userId, tokens, scanDepth = '12months') {
   const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
 
   try {
-    // Update scan status to running
     await query(
       "UPDATE scans SET status = 'running', started_at = NOW() WHERE id = $1",
       [scanId]
     );
 
-    // Step 1: Get storage quota
-    logger.info('Fetching storage quota', { scanId, userId });
     let storageInfo;
     try {
       storageInfo = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
@@ -132,11 +95,6 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       storageInfo = { storageUsedBytes: 0, storageQuotaBytes: 15 * 1024 * 1024 * 1024 };
     }
 
-    // Scans are uncapped so users can fully see value before purchase.
-    const maxMatches = Infinity;
-    logger.info(`[SCAN DEBUG] Uncapped scan enabled; maxMatches=${maxMatches}`, { scanId, scanDepth });
-
-    // Step 2: Scan each category
     const categoryResults = [];
     let totalMessagesScanned = 0;
     let totalFreeableBytes = 0;
@@ -145,43 +103,28 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       logger.info(`Scanning category: ${categoryKey}`, { scanId });
 
       const q = applyDepthFilter(categoryDef.query, scanDepth, categoryKey);
-
-      // null means this category is incompatible with the chosen scan depth — skip it
       if (q === null) {
         logger.info(`Skipping category ${categoryKey} — incompatible with depth '${scanDepth}'`, { scanId });
         continue;
       }
 
-      logger.info(`[SCAN DEBUG] Category ${categoryKey}: query="${q}", maxMessages=${maxMatches === Infinity ? 'Infinity' : maxMatches}`, { scanId });
       let messageIds;
-      const categoryStart = Date.now();
       try {
-        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages: maxMatches });
-        logger.info(`[SCAN DEBUG] Category ${categoryKey}: found ${messageIds.length} messages in ${Date.now()-categoryStart}ms`, { scanId });
+        messageIds = await collectMessageIdsByQuery(gmail, q, { maxMessages: Infinity });
+        logger.info(`Category ${categoryKey}: found ${messageIds.length} messages`, { scanId });
       } catch (err) {
         const status = err?.response?.status || err?.code;
         const errMsg = err?.response?.data?.error?.message || err?.message || String(err);
 
-        // Auth errors — bubble up and fail the scan visibly
-        if (status === 401 || status === 403 ||
-            errMsg?.includes('invalid_grant') ||
-            errMsg?.includes('Token has been expired') ||
-            errMsg?.includes('Invalid Credentials')) {
-          logger.error('Gmail API auth error — failing scan', { status, errMsg, scanId, categoryKey });
+        if (status === 401 || status === 403 || errMsg?.includes('invalid_grant') || errMsg?.includes('Token has been expired') || errMsg?.includes('Invalid Credentials')) {
           throw new Error(`Gmail API auth failed (${status}): ${errMsg}. Please log out and log back in.`);
         }
 
-        // Network errors — bubble up so we know if Render can't reach Google
-        const isNetworkError = err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT' ||
-          err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED' ||
-          errMsg?.includes('ECONNRESET') || errMsg?.includes('ETIMEDOUT') ||
-          errMsg?.includes('network') || errMsg?.includes('socket');
+        const isNetworkError = err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT' || err?.code === 'ENOTFOUND' || err?.code === 'ECONNREFUSED' || errMsg?.includes('ECONNRESET') || errMsg?.includes('ETIMEDOUT') || errMsg?.includes('network') || errMsg?.includes('socket');
         if (isNetworkError) {
-          logger.error('Gmail API network error — outbound connection blocked?', { code: err?.code, errMsg, scanId, categoryKey });
-          throw new Error(`Gmail API network error (${err?.code || 'unknown'}): ${errMsg}. Outbound connections to Google may be blocked on this server.`);
+          throw new Error(`Gmail API network error (${err?.code || 'unknown'}): ${errMsg}`);
         }
 
-        // Non-auth, non-network errors (rate limit, transient 5xx): skip this category only
         logger.warn(`Skipping category ${categoryKey} after error`, { status, errMsg, scanId });
         messageIds = [];
       }
@@ -206,31 +149,18 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         continue;
       }
 
-      // Fetch metadata (no body)
-      const metadataSampleSize = Math.min(messageIds.length, 2000);
-      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
+      // Fetch full metadata for ALL matching emails — no artificial cap.
+      // batchGetMessageMetadata handles rate limiting internally (100 parallel, 150ms between batches).
+      const metadata = await batchGetMessageMetadata(gmail, messageIds);
       totalMessagesScanned += messageIds.length;
 
-      // Build thread count map for reply detection
       const threadCounts = new Map();
       for (const msg of metadata) {
-        const current = threadCounts.get(msg.threadId) || 0;
-        threadCounts.set(msg.threadId, current + 1);
+        threadCounts.set(msg.threadId, (threadCounts.get(msg.threadId) || 0) + 1);
       }
 
-      // Score category
       const scored = scoreCategory(metadata, categoryKey, threadCounts);
-      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
-      const estimatedCategoryBytes = Math.round(avgBytes * messageIds.length);
-      totalFreeableBytes += estimatedCategoryBytes;
-
-      // Scale tier counts from sample to full dataset proportionally
-      const sampleSize = metadata.length;
-      const totalCount = messageIds.length;
-      const sampleRatio = sampleSize > 0 && sampleSize < totalCount ? totalCount / sampleSize : 1;
-      const scaledHighCount   = Math.round((scored.highCount   || 0) * sampleRatio);
-      const scaledMediumCount = Math.round((scored.mediumCount || 0) * sampleRatio);
-      const scaledReviewCount = Math.max(0, totalCount - scaledHighCount - scaledMediumCount);
+      totalFreeableBytes += scored.totalBytes;
 
       categoryResults.push({
         key: categoryKey,
@@ -239,20 +169,12 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         icon: categoryDef.icon,
         color: categoryDef.color,
         ...scored,
-        messageCount: totalCount,
-        highCount:    scaledHighCount,
-        mediumCount:  scaledMediumCount,
-        reviewCount:  scaledReviewCount,
-        sampleSize:   sampleSize < totalCount ? sampleSize : undefined,
-        totalBytes: estimatedCategoryBytes,
-        estimatedMB: parseFloat((estimatedCategoryBytes / (1024 * 1024)).toFixed(2)),
-        cleanup: {
-          mode: 'query',
-          query: q,
-        },
+        messageCount: messageIds.length,
+        totalBytes: scored.totalBytes,
+        estimatedMB: parseFloat((scored.totalBytes / (1024 * 1024)).toFixed(2)),
+        cleanup: { mode: 'query', query: q },
       });
 
-      // Update progress in DB
       await query(
         `UPDATE scans SET
            total_messages_scanned = $1,
@@ -263,7 +185,6 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       );
     }
 
-    // Step 3: Calculate storage growth
     const previousScan = await getPreviousScan(userId, scanId);
     const storageGrowthDailyBytes = calculateDailyGrowth(storageInfo.storageUsedBytes, previousScan);
     const estimatedDaysUntilFull = storageGrowthDailyBytes > 0
@@ -272,7 +193,6 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
 
     const confidenceSummary = buildConfidenceSummary(categoryResults);
 
-    // Step 4: Mark scan complete
     await query(
       `UPDATE scans SET
          status = 'complete',
@@ -312,17 +232,12 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
   }
 }
 
-/**
- * Run a custom-query scan for a single user-defined Gmail filter.
- * Produces one category result ("Custom Filter") instead of the 7 preset categories.
- */
 async function runCustomScan(scanId, userId, tokens, customQuery) {
   const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
 
   try {
     await query("UPDATE scans SET status = 'running', started_at = NOW() WHERE id = $1", [scanId]);
 
-    // Get storage quota
     let storageInfo;
     try {
       storageInfo = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
@@ -332,13 +247,9 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
 
     logger.info('Running custom scan', { scanId, userId, query: customQuery });
 
-    // Custom scans are uncapped so users can fully see value before purchase.
-    const maxMatches = Infinity;
-
-    // Collect message IDs matching the custom query
     let messageIds;
     try {
-      messageIds = await collectMessageIdsByQuery(gmail, customQuery, { maxMessages: maxMatches });
+      messageIds = await collectMessageIdsByQuery(gmail, customQuery, { maxMessages: Infinity });
     } catch (err) {
       logger.warn('Custom scan: failed to list messages', { err: err.message });
       messageIds = [];
@@ -348,25 +259,15 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
     let categoryResults = [];
 
     if (messageIds.length > 0) {
-      // Keep metadata sampling bounded for performance while still reflecting
-      // full match count for cleanup.
-      const metadataSampleSize = Math.min(messageIds.length, 2000);
-      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
+      // Fetch full metadata for ALL matching emails — no artificial cap.
+      const metadata = await batchGetMessageMetadata(gmail, messageIds);
       const threadCounts = new Map();
       for (const msg of metadata) {
         threadCounts.set(msg.threadId, (threadCounts.get(msg.threadId) || 0) + 1);
       }
-      const scored = scoreCategory(metadata, 'custom_filter', threadCounts);
-      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
-      totalFreeableBytes = Math.round(avgBytes * messageIds.length);
 
-      // Scale tier counts from sample to full dataset proportionally
-      const sampleSizeC = metadata.length;
-      const totalCountC = messageIds.length;
-      const sampleRatioC = sampleSizeC > 0 && sampleSizeC < totalCountC ? totalCountC / sampleSizeC : 1;
-      const scaledHighC   = Math.round((scored.highCount   || 0) * sampleRatioC);
-      const scaledMediumC = Math.round((scored.mediumCount || 0) * sampleRatioC);
-      const scaledReviewC = Math.max(0, totalCountC - scaledHighC - scaledMediumC);
+      const scored = scoreCategory(metadata, 'custom_filter', threadCounts);
+      totalFreeableBytes = scored.totalBytes;
 
       categoryResults = [{
         key: 'custom_filter',
@@ -375,17 +276,10 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
         icon: 'AdjustmentsIcon',
         color: 'indigo',
         ...scored,
-        messageCount: totalCountC,
-        highCount:    scaledHighC,
-        mediumCount:  scaledMediumC,
-        reviewCount:  scaledReviewC,
-        sampleSize:   sampleSizeC < totalCountC ? sampleSizeC : undefined,
-        totalBytes: totalFreeableBytes,
-        estimatedMB: parseFloat((totalFreeableBytes / (1024 * 1024)).toFixed(2)),
-        cleanup: {
-          mode: 'query',
-          query: customQuery,
-        },
+        messageCount: messageIds.length,
+        totalBytes: scored.totalBytes,
+        estimatedMB: parseFloat((scored.totalBytes / (1024 * 1024)).toFixed(2)),
+        cleanup: { mode: 'query', query: customQuery },
       }];
     }
 
@@ -425,9 +319,6 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
   }
 }
 
-/**
- * Get the most recent completed scan for delta storage calculation
- */
 async function getPreviousScan(userId, currentScanId) {
   const result = await query(
     `SELECT storage_used_bytes, completed_at
@@ -439,27 +330,17 @@ async function getPreviousScan(userId, currentScanId) {
   return result.rows[0] || null;
 }
 
-/**
- * Calculate daily storage growth rate.
- * Growth = (current - previous) / days_between_scans
- */
 function calculateDailyGrowth(currentBytes, previousScan) {
   if (!previousScan || !previousScan.storage_used_bytes) return 0;
-
   const daysBetween = Math.max(
     1,
     (Date.now() - new Date(previousScan.completed_at).getTime()) / (1000 * 60 * 60 * 24)
   );
-
   const growth = currentBytes - previousScan.storage_used_bytes;
   if (growth <= 0) return 0;
-
   return Math.floor(growth / daysBetween);
 }
 
-/**
- * Build a summary of confidence tiers across all categories
- */
 function buildConfidenceSummary(categoryResults) {
   const summary = { HIGH: 0, MEDIUM: 0, REVIEW_REQUIRED: 0, totalMessages: 0 };
   for (const cat of categoryResults) {
