@@ -11,6 +11,8 @@ const {
   setPrimaryMailbox,
   removeMailbox,
 } = require('../services/mailboxService');
+const { getOAuthTokens } = require('../services/tokenService');
+const { getStorageQuota } = require('../services/gmailService');
 const logger = require('../utils/logger');
 
 router.get('/quota', requireAuth, async (req, res) => {
@@ -143,6 +145,136 @@ router.delete('/mailboxes/:mailboxId', requireAuth, async (req, res) => {
     }
     logger.error('Failed to remove mailbox', err, { userId: req.user.id, mailboxId: req.params.mailboxId });
     return res.status(500).json({ error: 'Failed to remove mailbox.' });
+  }
+});
+
+/**
+ * GET /user/storage-growth
+ * Fetches live Gmail storage quota and computes daily growth rate instantly.
+ *
+ * Strategy:
+ *  1. Fetch current storage from Google Drive API (live, no scan needed).
+ *  2. Pull historical storage data from all completed scans (already stored).
+ *  3. Build a timeline: [...past scans, today's live reading].
+ *  4. With >= 2 data points: compute best-fit daily growth.
+ *  5. With only 1 data point (first ever login, no scans yet): return storage
+ *     info without growth data but store current reading for next visit.
+ *
+ * This means even a user with ONE past scan will see growth data immediately
+ * on their next login because we compare (last-scan bytes, last-scan date)
+ * against (current bytes, now).
+ */
+router.get('/storage-growth', requireAuth, async (req, res) => {
+  try {
+    const mailboxId = req.query.mailboxId || null;
+    const tokens = await getOAuthTokens(req.user.id, mailboxId);
+
+    // 1. Live storage from Google Drive API
+    // If it fails (missing scope, expired token, network error) we gracefully fall
+    // back to the most-recent scan's storage snapshot rather than returning 503.
+    let liveStorageFetched = true;
+    let liveStorageRaw;
+    try {
+      liveStorageRaw = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
+    } catch (err) {
+      liveStorageFetched = false;
+      logger.warn('storage-growth: could not fetch live quota — using scan fallback', { err: err.message, userId: req.user.id });
+    }
+
+    // Fallback: pull latest scan's storage snapshot when Drive API is unavailable
+    if (!liveStorageFetched) {
+      const fallbackRes = await query(
+        `SELECT storage_used_bytes, storage_quota_bytes, storage_growth_daily_bytes, estimated_days_until_full
+         FROM scans
+         WHERE user_id = $1 AND status = 'complete' AND storage_used_bytes > 0
+         ORDER BY completed_at DESC LIMIT 1`,
+        [req.user.id]
+      );
+      const fb = fallbackRes.rows[0];
+      if (!fb) {
+        return res.status(503).json({ error: 'Could not fetch storage data. Please try again.' });
+      }
+      const fbUsed  = Number(fb.storage_used_bytes)  || 0;
+      const fbQuota = Number(fb.storage_quota_bytes) || (15 * 1024 * 1024 * 1024);
+      return res.json({
+        usedBytes:               fbUsed,
+        quotaBytes:              fbQuota,
+        percentUsed:             fbQuota > 0 ? Math.round((fbUsed / fbQuota) * 100) : 0,
+        dailyGrowthBytes:        Number(fb.storage_growth_daily_bytes) || 0,
+        estimatedDaysUntilFull:  fb.estimated_days_until_full ? Number(fb.estimated_days_until_full) : null,
+        isEstimate:              true,
+        dataPointCount:          1,   // signals StorageGauge to show "need more data"
+        source:                  'scan_fallback',
+      });
+    }
+
+    const usedBytes  = liveStorageRaw.storageUsedBytes  || 0;
+    const quotaBytes = liveStorageRaw.storageQuotaBytes || (15 * 1024 * 1024 * 1024);
+    const percentUsed = quotaBytes > 0
+      ? Math.round((usedBytes / quotaBytes) * 100)
+      : 0;
+
+    // 2. Historical data points from completed scans
+    const historyRes = await query(
+      `SELECT storage_used_bytes, completed_at
+       FROM scans
+       WHERE user_id = $1
+         AND status = 'complete'
+         AND storage_used_bytes > 0
+       ORDER BY completed_at ASC
+       LIMIT 30`,
+      [req.user.id]
+    );
+
+    const dataPoints = historyRes.rows.map(r => ({
+      bytes: Number(r.storage_used_bytes),
+      date:  new Date(r.completed_at),
+    }));
+
+    // Add today's live reading as the latest data point
+    dataPoints.push({ bytes: usedBytes, date: new Date() });
+
+    // 3. Compute daily growth from all available data points
+    let dailyGrowthBytes = 0;
+    let estimatedDaysUntilFull = null;
+    let isEstimate = false;
+    let dataPointCount = dataPoints.length;
+
+    if (dataPoints.length >= 2) {
+      // Use the oldest and newest points for a stable long-range rate
+      const oldest = dataPoints[0];
+      const newest  = dataPoints[dataPoints.length - 1];
+      const daysBetween = Math.max(
+        1,
+        (newest.date.getTime() - oldest.date.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const growth = newest.bytes - oldest.bytes;
+
+      if (growth > 0) {
+        dailyGrowthBytes = Math.round(growth / daysBetween);
+        const remaining = quotaBytes - usedBytes;
+        estimatedDaysUntilFull = remaining > 0 && dailyGrowthBytes > 0
+          ? Math.min(Math.floor(remaining / dailyGrowthBytes), 9999)
+          : null;
+      }
+      // If growth <= 0 (user cleaned up), keep dailyGrowthBytes = 0 → "Not growing"
+    }
+
+    // Only 1 data point (no previous scan + this is their first live fetch):
+    // We have no growth rate yet — frontend will show the right message.
+
+    return res.json({
+      usedBytes,
+      quotaBytes,
+      percentUsed,
+      dailyGrowthBytes,
+      estimatedDaysUntilFull,
+      isEstimate,
+      dataPointCount,
+    });
+  } catch (err) {
+    logger.error('Failed to compute storage growth', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to compute storage growth.' });
   }
 });
 
