@@ -170,15 +170,32 @@ router.get('/storage-growth', requireAuth, async (req, res) => {
     const tokens = await getOAuthTokens(req.user.id, mailboxId);
 
     // 1. Live storage from Google Drive API
-    // If it fails (missing scope, expired token, network error) we gracefully fall
-    // back to the most-recent scan's storage snapshot rather than returning 503.
+    // Falls back to scan history if Drive scope not granted or API unreachable.
     let liveStorageFetched = true;
+    let needsDriveReauth   = false;
     let liveStorageRaw;
     try {
       liveStorageRaw = await getStorageQuota(tokens.accessToken, tokens.refreshToken);
     } catch (err) {
       liveStorageFetched = false;
-      logger.warn('storage-growth: could not fetch live quota — using scan fallback', { err: err.message, userId: req.user.id });
+      // 401/403 with PERMISSION_DENIED → Drive scope not granted on this token.
+      // Return a flag so the frontend can show a "Reconnect Google" button.
+      const status  = err?.response?.status || err?.code;
+      const errBody = err?.response?.data?.error;
+      const isDriveScope =
+        status === 403 ||
+        status === 401 ||
+        (typeof errBody === 'object' && errBody?.status === 'PERMISSION_DENIED') ||
+        (typeof errBody === 'string'  && errBody?.includes('insufficientPermissions')) ||
+        err?.message?.includes('insufficientPermissions') ||
+        err?.message?.includes('Access Not Configured') ||
+        err?.message?.includes('PERMISSION_DENIED');
+      if (isDriveScope) {
+        needsDriveReauth = true;
+        logger.warn('storage-growth: Drive scope not granted — user needs reauth', { userId: req.user.id });
+      } else {
+        logger.warn('storage-growth: Drive API unavailable — using scan fallback', { err: err.message, userId: req.user.id });
+      }
     }
 
     // Fallback: compute growth from scan history when Drive API is unavailable.
@@ -224,6 +241,12 @@ router.get('/storage-growth', requireAuth, async (req, res) => {
         }
       }
 
+      // Check if all scans are from the same day — growth can't be computed
+      const oldestDate = new Date(rows[0].completed_at);
+      const newestDate = new Date(rows[rows.length - 1].completed_at);
+      const spanDays   = (newestDate.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24);
+      const scansTooRecent = rows.length < 2 || spanDays < 1;
+
       return res.json({
         usedBytes:              fbUsed,
         quotaBytes:             fbQuota,
@@ -232,7 +255,10 @@ router.get('/storage-growth', requireAuth, async (req, res) => {
         estimatedDaysUntilFull: fbDaysUntilFull,
         isEstimate:             true,
         dataPointCount:         rows.length,
+        scansTooRecent,           // true when all scans done within same day
+        scanSpanDays:            parseFloat(spanDays.toFixed(1)),
         source:                 'scan_fallback',
+        needsDriveReauth,
       });
     }
 
@@ -299,6 +325,7 @@ router.get('/storage-growth', requireAuth, async (req, res) => {
       estimatedDaysUntilFull,
       isEstimate,
       dataPointCount,
+      source: 'live',
     });
   } catch (err) {
     logger.error('Failed to compute storage growth', err, { userId: req.user.id });
