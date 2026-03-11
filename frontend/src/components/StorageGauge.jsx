@@ -1,40 +1,46 @@
 // src/components/StorageGauge.jsx
 // Displays Gmail storage usage, daily growth rate, and estimated days until full.
 //
-// Data priority:
-//  1. liveStorage  — from GET /user/storage-growth
-//       source === undefined   → live Google Drive API reading
-//       source === 'scan_fallback' → computed from scan history (Drive API unavailable)
-//  2. storage      — from scan record (stale, used only if liveStorage never loads)
+// Data sources (in priority order):
+//  1. liveStorage.source === 'live'          → real-time from Google Drive API
+//  2. liveStorage.source === 'scan_fallback' → computed from scan history
+//  3. storage (scan record)                  → last resort if liveStorage never arrives
+//
+// Key flags from backend:
+//  needsDriveReauth  → Drive scope not granted; show reconnect prompt
+//  scansTooRecent    → all scans done same day; can't compute growth yet
 
 import { clsx } from 'clsx';
+
+const BACKEND_URL = import.meta.env.VITE_API_URL || '';
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 GB';
   const gb = bytes / (1024 ** 3);
   if (gb >= 1) return `${gb.toFixed(1)} GB`;
   const mb = bytes / (1024 ** 2);
-  return `${mb.toFixed(0)} MB`;
+  if (mb >= 1) return `${mb.toFixed(0)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
 }
 
 function formatDays(days) {
   if (!days || days <= 0) return null;
   if (days >= 9999) return '10+ years';
-  if (days >= 365)  return `~${(days / 365).toFixed(1)} years`;
+  if (days >= 365)  return `~${(days / 365).toFixed(1)} yrs`;
   if (days >= 60)   return `~${Math.round(days / 30)} months`;
   return `~${days} days`;
 }
 
-function getGaugeColor(percent) {
-  if (percent >= 90) return 'bg-red-500';
-  if (percent >= 70) return 'bg-orange-400';
-  if (percent >= 50) return 'bg-yellow-400';
+function getGaugeColor(pct) {
+  if (pct >= 90) return 'bg-red-500';
+  if (pct >= 70) return 'bg-orange-400';
+  if (pct >= 50) return 'bg-yellow-400';
   return 'bg-brand-500';
 }
 
-function getGaugeLabelColor(percent) {
-  if (percent >= 90) return 'text-red-600';
-  if (percent >= 70) return 'text-orange-500';
+function getGaugeLabelColor(pct) {
+  if (pct >= 90) return 'text-red-600';
+  if (pct >= 70) return 'text-orange-500';
   return 'text-brand-600';
 }
 
@@ -43,7 +49,6 @@ function Spinner() {
 }
 
 export default function StorageGauge({ storage, liveStorage, liveStorageLoading }) {
-  // Prefer live/fallback data; fall back to scan.storage as last resort
   const data = liveStorage || storage;
   if (!data) return null;
 
@@ -51,45 +56,50 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
   const quotaBytes         = data.quotaBytes          ?? data.storageQuotaBytes ?? 0;
   const percentUsed        = data.percentUsed         ?? (quotaBytes > 0 ? Math.round((usedBytes / quotaBytes) * 100) : 0);
   const dailyGrowthBytes   = data.dailyGrowthBytes    ?? 0;
-  const estimatedDaysUntilFull = data.estimatedDaysUntilFull ?? null;
+  const estimatedDays      = data.estimatedDaysUntilFull ?? null;
   const dataPointCount     = data.dataPointCount      ?? null;
   const isScanFallback     = data.source === 'scan_fallback';
-  const hasData            = !!liveStorage;  // true for both live and scan_fallback
+  const isLive             = data.source === 'live';
+  const needsDriveReauth   = !!data.needsDriveReauth;
+  const scansTooRecent     = !!data.scansTooRecent;
+  const hasData            = !!liveStorage;
 
   const barColor   = getGaugeColor(percentUsed);
   const labelColor = getGaugeLabelColor(percentUsed);
 
   // ── Growth display ────────────────────────────────────────────────────────
-  // Priority:
-  //  1. Loading → spinner
-  //  2. dailyGrowthBytes > 0 → "+X MB/day"
-  //  3. hasData + dataPointCount >= 2 + growth=0 → "Not growing 📉" (stable mailbox)
-  //  4. hasData + dataPointCount === 1 → "Need one more scan" (only 1 data point)
-  //  5. No data at all → use scan.storage values
   let growthDisplay;
   let growthSub = null;
+  let growthColor = 'text-gray-900';
 
   if (liveStorageLoading) {
     growthDisplay = <Spinner />;
+
   } else if (dailyGrowthBytes > 0) {
-    // Growth detected — show rate regardless of data source
+    // Real growth detected — show the number
     growthDisplay = `+${formatBytes(dailyGrowthBytes)}/day`;
-    growthSub = isScanFallback ? 'based on scan history' : null;
+    growthColor   = 'text-orange-500';
+    if (isScanFallback) growthSub = 'based on scan history';
+
+  } else if (hasData && scansTooRecent) {
+    // Scans all happened today — not enough time between readings to compute rate
+    growthDisplay = 'Check back tomorrow';
+    growthSub     = `${dataPointCount} scan${dataPointCount !== 1 ? 's' : ''}, all from today`;
+
   } else if (hasData && dataPointCount >= 2) {
-    // Multiple scans, no net growth → mailbox is stable (user cleaned up or inbox is steady)
-    growthDisplay = 'Stable 📉';
-    growthSub = isScanFallback
-      ? `across ${dataPointCount} scans`
-      : 'no net growth detected';
+    // Multiple scans over different days, no net growth = stable mailbox
+    growthDisplay = 'Stable';
+    growthSub     = `no net change across ${dataPointCount} scans`;
+
   } else if (hasData && dataPointCount === 1) {
-    // Only 1 data point — run one more scan to get a comparison
-    growthDisplay = 'Need one more scan';
-    growthSub = 'to measure growth rate';
+    growthDisplay = 'Run one more scan';
+    growthSub     = 'to calculate growth rate';
+
   } else {
-    // Absolute fallback — scan.storage data with no growth recorded
+    // Pure scan.storage fallback — no live data available
     growthDisplay = dailyGrowthBytes > 0
       ? `+${formatBytes(dailyGrowthBytes)}/day`
-      : 'Stable 📉';
+      : '—';
   }
 
   // ── Days until full ───────────────────────────────────────────────────────
@@ -98,19 +108,29 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
 
   if (liveStorageLoading) {
     daysDisplay = <Spinner />;
-  } else if (estimatedDaysUntilFull) {
-    daysDisplay = formatDays(estimatedDaysUntilFull);
-    daysUrgent  = estimatedDaysUntilFull < 90;
+
+  } else if (estimatedDays && estimatedDays > 0) {
+    daysDisplay = formatDays(estimatedDays);
+    daysUrgent  = estimatedDays < 90;
+
   } else if (dailyGrowthBytes > 0) {
-    // Has growth rate but no days estimate (shouldn't normally happen)
-    daysDisplay = 'Calculating…';
+    // Has growth but no estimatedDays — compute it now
+    const remaining = quotaBytes - usedBytes;
+    const computed  = remaining > 0 ? Math.floor(remaining / dailyGrowthBytes) : null;
+    daysDisplay = computed ? formatDays(computed) : 'Calculating…';
+    daysUrgent  = computed && computed < 90;
+
+  } else if (hasData && scansTooRecent) {
+    daysDisplay = 'Check back tomorrow';
+
   } else if (hasData && dataPointCount >= 2) {
-    // Stable — not filling up
     daysDisplay = 'Not filling up ✓';
+
   } else if (hasData && dataPointCount === 1) {
-    daysDisplay = 'Need one more scan';
+    daysDisplay = 'Run one more scan';
+
   } else {
-    daysDisplay = estimatedDaysUntilFull ? formatDays(estimatedDaysUntilFull) : 'Not filling up ✓';
+    daysDisplay = '—';
   }
 
   return (
@@ -139,10 +159,7 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-gray-50 rounded-xl p-4">
           <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Daily growth</p>
-          <p className={clsx(
-            'text-base font-semibold',
-            dailyGrowthBytes > 0 ? 'text-orange-500' : 'text-gray-900'
-          )}>
+          <p className={clsx('text-base font-semibold', growthColor)}>
             {growthDisplay}
           </p>
           {growthSub && <p className="text-xs text-gray-400 mt-0.5">{growthSub}</p>}
@@ -156,8 +173,37 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
         </div>
       </div>
 
+      {/* ── Drive reauth banner ── */}
+      {needsDriveReauth && !liveStorageLoading && (
+        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <span className="text-lg mt-0.5 flex-shrink-0">🔑</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-amber-800 font-semibold">Reconnect Google for live storage</p>
+            <p className="text-xs text-amber-700 mt-0.5 leading-snug">
+              Live storage data needs a Google Drive permission that wasn't granted when you first signed in.
+              One click to re-connect — your emails and settings are unaffected.
+            </p>
+          </div>
+          <a
+            href={`${BACKEND_URL}/auth/google?force=true`}
+            className="flex-shrink-0 mt-0.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          >
+            Reconnect
+          </a>
+        </div>
+      )}
+
+      {/* ── Same-day scans notice ── */}
+      {!needsDriveReauth && hasData && scansTooRecent && !liveStorageLoading && (
+        <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+          <p className="text-xs text-blue-700 leading-snug">
+            📊 Growth rate requires scans on different days. Run another scan tomorrow to see your daily usage trend.
+          </p>
+        </div>
+      )}
+
       {/* Data source indicator */}
-      {hasData && !liveStorageLoading && (
+      {hasData && !liveStorageLoading && !needsDriveReauth && (
         <p className="text-xs text-gray-400 mt-3 flex items-center gap-1.5">
           {isScanFallback ? (
             <>
@@ -187,7 +233,7 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
       {!liveStorageLoading && daysUrgent && percentUsed < 90 && (
         <div className="mt-4 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3">
           <p className="text-sm text-orange-700 font-medium">
-            📈 At this rate your mailbox fills in {formatDays(estimatedDaysUntilFull)}. Consider a cleanup.
+            📈 At this rate your mailbox fills in {formatDays(estimatedDays)}. Consider a cleanup.
           </p>
         </div>
       )}
