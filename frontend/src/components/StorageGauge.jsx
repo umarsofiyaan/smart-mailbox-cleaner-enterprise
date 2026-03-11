@@ -2,11 +2,10 @@
 // Displays Gmail storage usage, daily growth rate, and estimated days until full.
 //
 // Data priority:
-//  1. liveStorage  — from GET /user/storage-growth (live Google API + history)
-//  2. storage      — from scan record (stale, only has growth if 2+ scans run)
-//
-// The liveStorage endpoint computes growth instantly by comparing the current
-// live reading against historical scan data, so it works after just 1 past scan.
+//  1. liveStorage  — from GET /user/storage-growth
+//       source === undefined   → live Google Drive API reading
+//       source === 'scan_fallback' → computed from scan history (Drive API unavailable)
+//  2. storage      — from scan record (stale, used only if liveStorage never loads)
 
 import { clsx } from 'clsx';
 
@@ -21,8 +20,8 @@ function formatBytes(bytes) {
 function formatDays(days) {
   if (!days || days <= 0) return null;
   if (days >= 9999) return '10+ years';
-  if (days >= 365) return `~${(days / 365).toFixed(1)} years`;
-  if (days >= 60)  return `~${Math.round(days / 30)} months`;
+  if (days >= 365)  return `~${(days / 365).toFixed(1)} years`;
+  if (days >= 60)   return `~${Math.round(days / 30)} months`;
   return `~${days} days`;
 }
 
@@ -40,13 +39,11 @@ function getGaugeLabelColor(percent) {
 }
 
 function Spinner() {
-  return (
-    <span className="inline-block w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-  );
+  return <span className="inline-block w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />;
 }
 
 export default function StorageGauge({ storage, liveStorage, liveStorageLoading }) {
-  // Prefer live data when available — it's fresher and computes growth better
+  // Prefer live/fallback data; fall back to scan.storage as last resort
   const data = liveStorage || storage;
   if (!data) return null;
 
@@ -55,49 +52,47 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
   const percentUsed        = data.percentUsed         ?? (quotaBytes > 0 ? Math.round((usedBytes / quotaBytes) * 100) : 0);
   const dailyGrowthBytes   = data.dailyGrowthBytes    ?? 0;
   const estimatedDaysUntilFull = data.estimatedDaysUntilFull ?? null;
-  const dataPointCount     = data.dataPointCount      ?? null;   // only present on liveStorage
+  const dataPointCount     = data.dataPointCount      ?? null;
+  const isScanFallback     = data.source === 'scan_fallback';
+  const hasData            = !!liveStorage;  // true for both live and scan_fallback
 
   const barColor   = getGaugeColor(percentUsed);
   const labelColor = getGaugeLabelColor(percentUsed);
 
-  // ── Growth cell logic ──────────────────────────────────────────────────────
-  // States:
-  //  loading       → spinner (live fetch in flight)
-  //  dailyGrowth>0 → show +X/day
-  //  growth=0 & have data → "Not growing"
-  //  no history (first login, dataPointCount===1) → "Measuring…" (need 1 more scan or next login)
-  //  otherwise     → "Calculating…"
-
-  const hasLiveData = !!liveStorage;
-
+  // ── Growth display ────────────────────────────────────────────────────────
+  // Priority:
+  //  1. Loading → spinner
+  //  2. dailyGrowthBytes > 0 → "+X MB/day"
+  //  3. hasData + dataPointCount >= 2 + growth=0 → "Not growing 📉" (stable mailbox)
+  //  4. hasData + dataPointCount === 1 → "Need one more scan" (only 1 data point)
+  //  5. No data at all → use scan.storage values
   let growthDisplay;
   let growthSub = null;
 
   if (liveStorageLoading) {
     growthDisplay = <Spinner />;
-  } else if (hasLiveData) {
-    if (dailyGrowthBytes > 0) {
-      growthDisplay = `+${formatBytes(dailyGrowthBytes)}/day`;
-    } else if (dataPointCount === 1) {
-      // Only one data point — we have the current live reading but no history yet.
-      // Next login (or next scan) will give us 2 points and show real growth.
-      growthDisplay = 'Measuring…';
-      growthSub = 'Will show after next login';
-    } else {
-      growthDisplay = 'Not growing 📉';
-    }
+  } else if (dailyGrowthBytes > 0) {
+    // Growth detected — show rate regardless of data source
+    growthDisplay = `+${formatBytes(dailyGrowthBytes)}/day`;
+    growthSub = isScanFallback ? 'based on scan history' : null;
+  } else if (hasData && dataPointCount >= 2) {
+    // Multiple scans, no net growth → mailbox is stable (user cleaned up or inbox is steady)
+    growthDisplay = 'Stable 📉';
+    growthSub = isScanFallback
+      ? `across ${dataPointCount} scans`
+      : 'no net growth detected';
+  } else if (hasData && dataPointCount === 1) {
+    // Only 1 data point — run one more scan to get a comparison
+    growthDisplay = 'Need one more scan';
+    growthSub = 'to measure growth rate';
   } else {
-    // Falling back to scan.storage (liveStorage unavailable / Drive API failed)
-    if (dailyGrowthBytes > 0) {
-      growthDisplay = `+${formatBytes(dailyGrowthBytes)}/day`;
-    } else {
-      // No growth data in scan record — need a 2nd scan to compute rate
-      growthDisplay = 'Run another scan';
-      growthSub = 'to measure growth rate';
-    }
+    // Absolute fallback — scan.storage data with no growth recorded
+    growthDisplay = dailyGrowthBytes > 0
+      ? `+${formatBytes(dailyGrowthBytes)}/day`
+      : 'Stable 📉';
   }
 
-  // ── Days until full logic ──────────────────────────────────────────────────
+  // ── Days until full ───────────────────────────────────────────────────────
   let daysDisplay;
   let daysUrgent = false;
 
@@ -107,14 +102,15 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
     daysDisplay = formatDays(estimatedDaysUntilFull);
     daysUrgent  = estimatedDaysUntilFull < 90;
   } else if (dailyGrowthBytes > 0) {
+    // Has growth rate but no days estimate (shouldn't normally happen)
     daysDisplay = 'Calculating…';
-  } else if (hasLiveData && dataPointCount === 1) {
-    daysDisplay = 'Need more data';
-  } else if (hasLiveData) {
+  } else if (hasData && dataPointCount >= 2) {
+    // Stable — not filling up
     daysDisplay = 'Not filling up ✓';
+  } else if (hasData && dataPointCount === 1) {
+    daysDisplay = 'Need one more scan';
   } else {
-    // No live data, no growth history — need another scan
-    daysDisplay = 'Need another scan';
+    daysDisplay = estimatedDaysUntilFull ? formatDays(estimatedDaysUntilFull) : 'Not filling up ✓';
   }
 
   return (
@@ -149,33 +145,28 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
           )}>
             {growthDisplay}
           </p>
-          {growthSub && (
-            <p className="text-xs text-gray-400 mt-0.5">{growthSub}</p>
-          )}
+          {growthSub && <p className="text-xs text-gray-400 mt-0.5">{growthSub}</p>}
         </div>
 
         <div className="bg-gray-50 rounded-xl p-4">
           <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Est. days until full</p>
-          <p className={clsx(
-            'text-base font-semibold',
-            daysUrgent ? 'text-orange-500' : 'text-gray-900'
-          )}>
+          <p className={clsx('text-base font-semibold', daysUrgent ? 'text-orange-500' : 'text-gray-900')}>
             {daysDisplay}
           </p>
         </div>
       </div>
 
       {/* Data source indicator */}
-      {hasLiveData && !liveStorageLoading && (
-        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-          {liveStorage?.source === 'scan_fallback' ? (
+      {hasData && !liveStorageLoading && (
+        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1.5">
+          {isScanFallback ? (
             <>
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400" />
-              From last scan · run a new scan to refresh
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0" />
+              From {dataPointCount} scan{dataPointCount !== 1 ? 's' : ''} · live storage unavailable
             </>
           ) : (
             <>
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
               Live data · updated just now
               {dataPointCount !== null && ` · ${dataPointCount} data point${dataPointCount !== 1 ? 's' : ''}`}
             </>
@@ -183,7 +174,7 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
         </p>
       )}
 
-      {/* Warning for almost-full mailbox */}
+      {/* Warning: almost full */}
       {percentUsed >= 90 && (
         <div className="mt-4 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700 font-medium">
@@ -192,7 +183,7 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
         </div>
       )}
 
-      {/* Warning for fast-filling mailbox */}
+      {/* Warning: filling up fast */}
       {!liveStorageLoading && daysUrgent && percentUsed < 90 && (
         <div className="mt-4 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3">
           <p className="text-sm text-orange-700 font-medium">
