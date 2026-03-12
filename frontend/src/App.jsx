@@ -1,92 +1,47 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider, useAuth } from './hooks/useAuth.jsx';
-import Home from './pages/Home';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Pricing from './pages/Pricing';
-import Admin from './pages/Admin';
-import Privacy from './pages/Privacy';
-import Terms from './pages/Terms';
-import RefundPolicy from './pages/RefundPolicy';
-import CancellationPolicy from './pages/CancellationPolicy';
-import SiteFooter from './components/SiteFooter';
+import { Link } from 'react-router-dom';
 
-function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-    </div>
-  );
-  return user ? children : <Navigate to="/login" replace />;
-}
-
-function AdminRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-    </div>
-  );
-  if (!user) return <Navigate to="/login" replace />;
-  return user.isAdmin ? children : <Navigate to="/dashboard" replace />;
-}
-
-function ExtensionAuth() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  const hasError = params.get('error');
-
+export default function SiteFooter() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center px-6">
-        <p className="text-2xl mb-2">{hasError ? 'Login failed' : 'Finishing sign-in'}</p>
-        <p className="font-semibold text-gray-900">
-          {hasError
-            ? 'Authentication could not be completed. Please return to the extension and try again.'
-            : code
-              ? 'You can return to the extension. This tab will close automatically if allowed.'
-              : 'Waiting for the extension to complete authentication.'}
-        </p>
+    <footer className="border-t border-gray-200 bg-gray-50/70 mt-10">
+      <div className="max-w-6xl mx-auto px-6 py-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div>
+          <div className="flex items-center gap-2.5 mb-3">
+            <img src="/icon-72.png" alt="Smart Mailbox Cleaner" className="w-8 h-8 rounded-lg" />
+            <span className="font-bold text-gray-900">Smart Mailbox Cleaner</span>
+          </div>
+          <a
+            href="https://smart-mailbox-cleaner.umarsofiyaan.shop/home"
+            className="text-sm text-gray-600 hover:text-gray-900 underline"
+          >
+            smart-mailbox-cleaner.umarsofiyaan.shop/home
+          </a>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Pages</h3>
+          <ul className="space-y-2 text-sm text-gray-600">
+            <li><Link to="/" className="hover:text-gray-900">Home</Link></li>
+            <li><Link to="/login" className="hover:text-gray-900">Login</Link></li>
+            <li><Link to="/pricing" className="hover:text-gray-900">Pricing</Link></li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Legal</h3>
+          <ul className="space-y-2 text-sm text-gray-600">
+            <li><Link to="/privacy-policy" className="hover:text-gray-900">Privacy Policy</Link></li>
+            <li><Link to="/terms-of-service" className="hover:text-gray-900">Terms of Service</Link></li>
+            <li><Link to="/refund-policy" className="hover:text-gray-900">Refund Policy</Link></li>
+            <li><Link to="/cancellation-policy" className="hover:text-gray-900">Cancellation Policy</Link></li>
+            <li><Link to="/contact" className="hover:text-gray-900">Contact Us</Link></li>
+          </ul>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function AppLayout() {
-  const location = useLocation();
-  const hideFooter = location.pathname === '/extension-auth';
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/home" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/pricing" element={<Pricing />} />
-          <Route path="/privacy-policy" element={<Privacy />} />
-          <Route path="/terms-of-service" element={<Terms />} />
-          <Route path="/refund-policy" element={<RefundPolicy />} />
-          <Route path="/cancellation-policy" element={<CancellationPolicy />} />
-          <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
-          <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
-          <Route path="/extension-auth" element={<ExtensionAuth />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-        </Routes>
-      </main>
-      {!hideFooter && <SiteFooter />}
-    </div>
-  );
-}
-
-export default function App() {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppLayout />
-      </AuthProvider>
-    </BrowserRouter>
+      <div className="max-w-6xl mx-auto px-6 pb-6 flex items-center gap-6 text-sm text-gray-600">
+        <span>© 2026 Smart Mailbox Cleaner</span>
+        <Link to="/privacy-policy" className="hover:text-gray-900">Privacy Policy</Link>
+        <Link to="/terms-of-service" className="hover:text-gray-900">Terms of Service</Link>
+      </div>
+    </footer>
   );
 }
