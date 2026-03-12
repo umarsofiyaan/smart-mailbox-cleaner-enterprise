@@ -304,10 +304,6 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
       setError('Please set at least one filter before scanning.');
       return;
     }
-    if (estimate === 0) {
-      setError('No emails match your filters. Try different criteria.');
-      return;
-    }
     onStart(params);
   }
 
