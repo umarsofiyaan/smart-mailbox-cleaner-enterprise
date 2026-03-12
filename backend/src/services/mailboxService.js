@@ -157,6 +157,7 @@ async function upsertConnectedMailbox(
     [userId, accountId]
   );
 
+  let activeMailboxCount = 0;
   if (!existing.rows[0]) {
     const currentCountRes = await query(
       `SELECT COUNT(*)::int AS c
@@ -164,18 +165,24 @@ async function upsertConnectedMailbox(
        WHERE user_id = $1 AND status = 'active'`,
       [userId]
     );
-    const currentCount = Number(currentCountRes.rows[0]?.c || 0);
+    activeMailboxCount = Number(currentCountRes.rows[0]?.c || 0);
     const limit = await getMailboxLimit(userId);
-    if (currentCount >= limit) {
+    if (activeMailboxCount >= limit) {
       throw new Error(`MAILBOX_LIMIT_REACHED:${limit}`);
     }
   }
+
+  // Keep the existing primary mailbox unless this is the very first active
+  // mailbox for the user or the caller explicitly requested promotion.
+  const shouldBecomePrimary = makePrimary
+    || Boolean(existing.rows[0]?.is_primary)
+    || (!existing.rows[0] && activeMailboxCount === 0);
 
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
-    if (makePrimary || !existing.rows[0]) {
+    if (shouldBecomePrimary) {
       await client.query(
         `UPDATE connected_mailboxes
          SET is_primary = FALSE, updated_at = NOW()
@@ -207,7 +214,7 @@ async function upsertConnectedMailbox(
         encrypt(tokens.refresh_token),
         expiry,
         tokens.scope ? tokens.scope.split(' ') : [],
-        makePrimary || !existing.rows[0],
+        shouldBecomePrimary,
       ]
     );
 
