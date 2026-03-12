@@ -33,7 +33,7 @@ export default function SiteFooter() {
             <li><Link to="/terms-of-service" className="hover:text-gray-900">Terms of Service</Link></li>
             <li><Link to="/refund-policy" className="hover:text-gray-900">Refund Policy</Link></li>
             <li><Link to="/cancellation-policy" className="hover:text-gray-900">Cancellation Policy</Link></li>
-            <li><a href="mailto:support@umarsofiyaan.shop" className="hover:text-gray-900">Contact</a></li>
+            <li><Link to="/contact" className="hover:text-gray-900">Contact Us</Link></li>
           </ul>
         </div>
       </div>
