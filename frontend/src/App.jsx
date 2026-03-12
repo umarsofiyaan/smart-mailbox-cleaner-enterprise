@@ -9,6 +9,7 @@ import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 import RefundPolicy from './pages/RefundPolicy';
 import CancellationPolicy from './pages/CancellationPolicy';
+import ShippingPolicy from './pages/ShippingPolicy';
 import Contact from './pages/Contact';
 import SiteFooter from './components/SiteFooter';
 
@@ -70,6 +71,7 @@ function AppLayout() {
           <Route path="/terms-of-service" element={<Terms />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/cancellation-policy" element={<CancellationPolicy />} />
+          <Route path="/shipping-policy" element={<ShippingPolicy />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
           <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
