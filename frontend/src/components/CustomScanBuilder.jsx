@@ -273,7 +273,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
     } finally {
       if (isMounted.current) setEstimateLoading(false);
     }
-  }, []);
+  }, [mailboxId]);
 
   useEffect(() => {
     if (!isOpen) return;
