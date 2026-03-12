@@ -1306,6 +1306,7 @@ export default function Dashboard() {
         onStart={handleCustomScanStart}
         onCreatePlaybook={handleCreatePlaybookFromCustom}
         isScanning={isRunning}
+        mailboxId={selectedMailboxId || null}
       />
 
       <PaywallModal

@@ -228,7 +228,7 @@ const DEFAULT_PARAMS = {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePlaybook, isScanning }) {
+export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePlaybook, isScanning, mailboxId }) {
   const [params,         setParams]         = useState(DEFAULT_PARAMS);
   const [estimate,       setEstimate]       = useState(null);
   const [estimateLowerBound, setEstimateLowerBound] = useState(false);
@@ -260,7 +260,7 @@ export default function CustomScanBuilder({ isOpen, onClose, onStart, onCreatePl
     }
     setEstimateLoading(true);
     try {
-      const res = await scanApi.previewCustomScan(p);
+      const res = await scanApi.previewCustomScan({ ...p, mailboxId });
       if (isMounted.current) {
         setEstimate(res.data.estimate);
         setEstimateLowerBound(!!res.data.isLowerBound);
