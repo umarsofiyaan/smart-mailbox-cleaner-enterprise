@@ -29,6 +29,7 @@ const subscriptionRoutes = require('./routes/subscription');
 const adminRoutes        = require('./routes/admin');
 const automationRoutes   = require('./routes/automation');
 const userRoutes         = require('./routes/user');
+const contactRoutes      = require('./routes/contact');
 const { startWorker }    = require('./jobs/worker');
 const logger             = require('./utils/logger');
 
@@ -107,6 +108,7 @@ app.use('/subscription', subscriptionRoutes);
 app.use('/admin',        adminRoutes);
 app.use('/automation',   automationRoutes);
 app.use('/user',         userRoutes);
+app.use('/contact',      contactRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
