@@ -149,9 +149,9 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         continue;
       }
 
-      // Fetch full metadata for ALL matching emails — no artificial cap.
-      // batchGetMessageMetadata handles rate limiting internally (100 parallel, 150ms between batches).
-      const metadata = await batchGetMessageMetadata(gmail, messageIds);
+      // Sample up to 2000 messages for metadata to avoid rate-limiting on large result sets.
+      const metadataSampleSize = Math.min(messageIds.length, 2000);
+      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
       totalMessagesScanned += messageIds.length;
 
       const threadCounts = new Map();
@@ -160,7 +160,19 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       }
 
       const scored = scoreCategory(metadata, categoryKey, threadCounts);
-      totalFreeableBytes += scored.totalBytes;
+
+      // Extrapolate bytes from sample to full dataset
+      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
+      const estimatedCategoryBytes = Math.round(avgBytes * messageIds.length);
+      totalFreeableBytes += estimatedCategoryBytes;
+
+      // Scale tier counts from sample to full dataset proportionally
+      const sampleSize = metadata.length;
+      const totalCount = messageIds.length;
+      const sampleRatio = sampleSize > 0 && sampleSize < totalCount ? totalCount / sampleSize : 1;
+      const scaledHighCount   = Math.round((scored.highCount   || 0) * sampleRatio);
+      const scaledMediumCount = Math.round((scored.mediumCount || 0) * sampleRatio);
+      const scaledReviewCount = Math.max(0, totalCount - scaledHighCount - scaledMediumCount);
 
       categoryResults.push({
         key: categoryKey,
@@ -169,9 +181,13 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         icon: categoryDef.icon,
         color: categoryDef.color,
         ...scored,
-        messageCount: messageIds.length,
-        totalBytes: scored.totalBytes,
-        estimatedMB: parseFloat((scored.totalBytes / (1024 * 1024)).toFixed(2)),
+        messageCount: totalCount,
+        highCount:    scaledHighCount,
+        mediumCount:  scaledMediumCount,
+        reviewCount:  scaledReviewCount,
+        sampleSize:   sampleSize < totalCount ? sampleSize : undefined,
+        totalBytes: estimatedCategoryBytes,
+        estimatedMB: parseFloat((estimatedCategoryBytes / (1024 * 1024)).toFixed(2)),
         cleanup: { mode: 'query', query: q },
       });
 
@@ -259,15 +275,27 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
     let categoryResults = [];
 
     if (messageIds.length > 0) {
-      // Fetch full metadata for ALL matching emails — no artificial cap.
-      const metadata = await batchGetMessageMetadata(gmail, messageIds);
+      // Sample up to 2000 messages for metadata to avoid rate-limiting on large result sets.
+      const metadataSampleSize = Math.min(messageIds.length, 2000);
+      const metadata = await batchGetMessageMetadata(gmail, messageIds.slice(0, metadataSampleSize));
       const threadCounts = new Map();
       for (const msg of metadata) {
         threadCounts.set(msg.threadId, (threadCounts.get(msg.threadId) || 0) + 1);
       }
 
       const scored = scoreCategory(metadata, 'custom_filter', threadCounts);
-      totalFreeableBytes = scored.totalBytes;
+
+      // Extrapolate bytes from sample to full dataset
+      const avgBytes = metadata.length > 0 ? (scored.totalBytes / metadata.length) : 0;
+      totalFreeableBytes = Math.round(avgBytes * messageIds.length);
+
+      // Scale tier counts from sample to full dataset proportionally
+      const sampleSize = metadata.length;
+      const totalCount = messageIds.length;
+      const sampleRatio = sampleSize > 0 && sampleSize < totalCount ? totalCount / sampleSize : 1;
+      const scaledHighCount   = Math.round((scored.highCount   || 0) * sampleRatio);
+      const scaledMediumCount = Math.round((scored.mediumCount || 0) * sampleRatio);
+      const scaledReviewCount = Math.max(0, totalCount - scaledHighCount - scaledMediumCount);
 
       categoryResults = [{
         key: 'custom_filter',
@@ -276,9 +304,13 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
         icon: 'AdjustmentsIcon',
         color: 'indigo',
         ...scored,
-        messageCount: messageIds.length,
-        totalBytes: scored.totalBytes,
-        estimatedMB: parseFloat((scored.totalBytes / (1024 * 1024)).toFixed(2)),
+        messageCount: totalCount,
+        highCount:    scaledHighCount,
+        mediumCount:  scaledMediumCount,
+        reviewCount:  scaledReviewCount,
+        sampleSize:   sampleSize < totalCount ? sampleSize : undefined,
+        totalBytes: totalFreeableBytes,
+        estimatedMB: parseFloat((totalFreeableBytes / (1024 * 1024)).toFixed(2)),
         cleanup: { mode: 'query', query: customQuery },
       }];
     }
