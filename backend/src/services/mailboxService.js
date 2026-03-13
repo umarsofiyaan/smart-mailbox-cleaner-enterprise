@@ -157,6 +157,7 @@ async function upsertConnectedMailbox(
     [userId, accountId]
   );
 
+  let activeMailboxCount = 0;
   if (!existing.rows[0]) {
     const currentCountRes = await query(
       `SELECT COUNT(*)::int AS c
@@ -164,9 +165,9 @@ async function upsertConnectedMailbox(
        WHERE user_id = $1 AND status = 'active'`,
       [userId]
     );
-    const currentCount = Number(currentCountRes.rows[0]?.c || 0);
+    activeMailboxCount = Number(currentCountRes.rows[0]?.c || 0);
     const limit = await getMailboxLimit(userId);
-    if (currentCount >= limit) {
+    if (activeMailboxCount >= limit) {
       throw new Error(`MAILBOX_LIMIT_REACHED:${limit}`);
     }
   }
@@ -175,7 +176,27 @@ async function upsertConnectedMailbox(
   try {
     await client.query('BEGIN');
 
-    if (makePrimary || !existing.rows[0]) {
+    const currentPrimaryRes = await client.query(
+      `SELECT id, google_account_id
+       FROM connected_mailboxes
+       WHERE user_id = $1 AND status = 'active' AND is_primary = TRUE
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+    const currentPrimary = currentPrimaryRes.rows[0] || null;
+
+    // New mailbox connections must not auto-promote unless explicitly requested.
+    // Keep current primary pinned, except when the connected mailbox is already
+    // the current primary account (reconnect/update) or no primary exists.
+    const shouldBecomePrimary = Boolean(
+      makePrimary
+      || !currentPrimary
+      || currentPrimary.google_account_id === accountId
+    );
+
+    if (shouldBecomePrimary) {
       await client.query(
         `UPDATE connected_mailboxes
          SET is_primary = FALSE, updated_at = NOW()
@@ -207,7 +228,7 @@ async function upsertConnectedMailbox(
         encrypt(tokens.refresh_token),
         expiry,
         tokens.scope ? tokens.scope.split(' ') : [],
-        makePrimary || !existing.rows[0],
+        shouldBecomePrimary,
       ]
     );
 
@@ -332,7 +353,7 @@ async function removeMailbox(userId, mailboxId, { actorUserId = null, actorEmail
     `SELECT id, is_primary, google_account_id, google_email
      FROM connected_mailboxes
      WHERE user_id = $1 AND status = 'active'
-     ORDER BY created_at ASC`,
+     ORDER BY is_primary DESC, created_at ASC`,
     [userId]
   );
   if (rows.rows.length <= 1) {
@@ -392,6 +413,32 @@ async function removeMailbox(userId, mailboxId, { actorUserId = null, actorEmail
           metadata: { reason: 'previous_primary_removed' },
         });
       }
+    }
+
+    // Safety sync: ensure oauth_tokens always points to the currently active
+    // primary mailbox (covers earlier states where oauth_tokens could remain on
+    // a now-disconnected/non-primary mailbox).
+    const activePrimary = await client.query(
+      `SELECT access_token, refresh_token, token_expiry, scopes
+       FROM connected_mailboxes
+       WHERE user_id = $1 AND status = 'active'
+       ORDER BY is_primary DESC, created_at ASC
+       LIMIT 1`,
+      [userId]
+    );
+    if (activePrimary.rows[0]) {
+      const primaryRow = activePrimary.rows[0];
+      await client.query(
+        `INSERT INTO oauth_tokens (user_id, access_token, refresh_token, token_expiry, scopes)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id) DO UPDATE
+           SET access_token = $2,
+               refresh_token = $3,
+               token_expiry = $4,
+               scopes = $5,
+               updated_at = NOW()`,
+        [userId, primaryRow.access_token, primaryRow.refresh_token, primaryRow.token_expiry, primaryRow.scopes || []]
+      );
     }
 
     await writeMailboxEvent(client, {

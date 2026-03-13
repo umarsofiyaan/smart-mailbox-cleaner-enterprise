@@ -28,6 +28,30 @@ const DB_CACHE_TTL_DAYS = 14;
 
 const memoryRegionCache = new Map();
 
+
+function isValidCountryCode(value) {
+  return /^[A-Z]{2}$/.test(String(value || '').toUpperCase());
+}
+
+function extractCountryCodeFromHeaders(req) {
+  const candidates = [
+    req?.headers?.['x-vercel-ip-country'],
+    req?.headers?.['cf-ipcountry'],
+    req?.headers?.['cloudfront-viewer-country'],
+    req?.headers?.['x-country-code'],
+    req?.headers?.['x-appengine-country'],
+  ];
+
+  for (const raw of candidates) {
+    const value = String(raw || '').trim().toUpperCase();
+    if (!isValidCountryCode(value)) continue;
+    if (value === 'XX' || value === 'ZZ') continue;
+    return value;
+  }
+
+  return null;
+}
+
 function isReducedRegion(countryCode) {
   return REDUCED_PRICE_COUNTRIES.has(String(countryCode || '').toUpperCase());
 }
@@ -162,6 +186,29 @@ async function detectCountryCodeByIp(ipAddress) {
 }
 
 async function getUserPricingContext(userId, req) {
+  const headerCountry = extractCountryCodeFromHeaders(req);
+  if (headerCountry) {
+    const now = Date.now();
+    const previous = memoryRegionCache.get(userId);
+    if (!previous || previous.countryCode !== headerCountry || previous.expiresAt <= now) {
+      await query(
+        `UPDATE users
+         SET pricing_country = $2,
+             pricing_region = $3,
+             region_detected_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [userId, headerCountry, resolveRegion(headerCountry)]
+      );
+    }
+
+    memoryRegionCache.set(userId, {
+      countryCode: headerCountry,
+      expiresAt: now + REGION_CACHE_TTL_MS,
+    });
+    return getPlanPricing(headerCountry);
+  }
+
   const sessionPricing = getPricingFromSession(req);
   if (sessionPricing) return sessionPricing;
 
