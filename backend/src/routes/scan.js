@@ -163,6 +163,7 @@ router.get('/:scanId', requireAuth, async (req, res) => {
             storage_used_bytes, storage_quota_bytes, storage_growth_daily_bytes,
             estimated_days_until_full, categories_json, confidence_summary,
             estimated_bytes_freeable, started_at, completed_at, error_message,
+            top_senders_json, newsletter_senders_json, sender_frequency_json, health_score, estimated_storage_mb,
             s.mailbox_id, cm.google_email AS mailbox_email
      FROM scans s
      LEFT JOIN connected_mailboxes cm ON cm.id = s.mailbox_id
@@ -198,6 +199,12 @@ router.get('/:scanId', requireAuth, async (req, res) => {
     confidenceSummary: scan.confidence_summary || {},
     estimatedFreeableBytes: scan.estimated_bytes_freeable,
     estimatedFreeableGB: parseFloat(((scan.estimated_bytes_freeable || 0) / (1024 ** 3)).toFixed(2)),
+    emailsFound: Number(scan.total_messages_scanned || 0),
+    topSenders: scan.top_senders_json || [],
+    newsletterSenders: scan.newsletter_senders_json || [],
+    senderFrequency: scan.sender_frequency_json || {},
+    healthScore: Number(scan.health_score || 0),
+    estimatedStorageMB: Number(scan.estimated_storage_mb || 0),
     startedAt: scan.started_at,
     completedAt: scan.completed_at,
     error: scan.error_message || null,

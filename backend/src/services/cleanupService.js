@@ -7,11 +7,69 @@ const {
   batchTrashMessages,
   batchRestoreMessages,
   batchRestoreMessagesWithLabels,
+  applyActionToMessages,
 } = require('./gmailService');
 const { query } = require('../config/database');
 const logger = require('../utils/logger');
 
 const LABEL_SNAPSHOT_LIMIT = parseInt(process.env.CLEANUP_LABEL_SNAPSHOT_LIMIT, 10) || 2000;
+
+function extractSenderEmail(from = '') {
+  const raw = String(from || '').trim().toLowerCase();
+  const m = raw.match(/<([^>]+)>/);
+  const email = (m ? m[1] : raw).replace(/^"|"$/g, '').trim();
+  return email.includes('@') ? email : '';
+}
+
+async function applyBlockedSenderRules(userId, gmail, messageIds = []) {
+  if (!userId || !Array.isArray(messageIds) || !messageIds.length) {
+    return { handledIds: [], trashedIds: [], applied: [] };
+  }
+
+  const rulesRes = await query(
+    `SELECT sender_email, action
+     FROM blocked_senders
+     WHERE user_id = $1`,
+    [userId]
+  );
+  if (!rulesRes.rows.length) return { handledIds: [], trashedIds: [], applied: [] };
+
+  const ruleMap = new Map();
+  for (const row of rulesRes.rows) {
+    ruleMap.set(String(row.sender_email || '').toLowerCase(), String(row.action || 'auto_delete').toLowerCase());
+  }
+
+  const metadata = await batchGetMessageMetadata(gmail, messageIds);
+  const groupedByAction = new Map();
+
+  for (const msg of metadata) {
+    const sender = extractSenderEmail(msg.from);
+    const action = ruleMap.get(sender);
+    if (!action) continue;
+    if (!groupedByAction.has(action)) groupedByAction.set(action, []);
+    groupedByAction.get(action).push(msg.id);
+  }
+
+  const handled = new Set();
+  const trashed = new Set();
+  const applied = [];
+  for (const [action, ids] of groupedByAction.entries()) {
+    const uniq = Array.from(new Set(ids));
+    if (!uniq.length) continue;
+    const res = await applyActionToMessages(gmail, uniq, action);
+    for (const id of res.success) {
+      handled.add(id);
+      if (action === 'auto_delete') trashed.add(id);
+    }
+    applied.push({ action, success: res.success.length, failed: res.failed.length });
+  }
+
+  return {
+    handledIds: Array.from(handled),
+    trashedIds: Array.from(trashed),
+    applied,
+  };
+}
 
 async function snapshotOriginalLabels(actionId, metadata, successfulIds) {
   if (!metadata?.length || !successfulIds?.length) return;
@@ -98,7 +156,8 @@ async function runCleanupAction(
   tokens,
   tokenExpiry = null,
   onProgress = null,
-  options = {}
+  options = {},
+  userId = null
 ) {
   if (!messageIds || messageIds.length === 0) throw new Error('No message IDs provided.');
 
@@ -106,7 +165,13 @@ async function runCleanupAction(
   const shouldSnapshotLabels = options.snapshotLabels !== false;
   const shouldLoadMetadata = shouldSnapshotLabels && messageIds.length <= LABEL_SNAPSHOT_LIMIT;
   const metadata = shouldLoadMetadata ? await batchGetMessageMetadata(gmail, messageIds) : [];
-  const result = await batchTrashMessages(gmail, messageIds, async (progress) => {
+
+  const blockedRuleResult = await applyBlockedSenderRules(userId, gmail, messageIds)
+    .catch(() => ({ handledIds: [], trashedIds: [], applied: [] }));
+  const handledSet = new Set(blockedRuleResult.handledIds || []);
+  const remainingIds = messageIds.filter((id) => !handledSet.has(id));
+
+  const result = await batchTrashMessages(gmail, remainingIds, async (progress) => {
     await query(
       `UPDATE cleanup_actions
        SET message_count = $1
@@ -119,11 +184,13 @@ async function runCleanupAction(
     }
   });
 
+  const trashedIds = Array.from(new Set([...(result.success || []), ...(blockedRuleResult.trashedIds || [])]));
+
   await query(
     `UPDATE cleanup_actions
      SET status = 'complete', message_ids = $1, message_count = $2
      WHERE id = $3`,
-    [result.success, result.success.length, actionId]
+    [trashedIds, trashedIds.length, actionId]
   );
 
   if (shouldLoadMetadata) {
@@ -144,7 +211,7 @@ async function runCleanupAction(
 
   return {
     actionId,
-    successCount: result.success.length,
+    successCount: trashedIds.length,
     conversationCount,
     failedCount: result.failed.length,
     failedIds: result.failed,
@@ -166,7 +233,10 @@ async function executeCleanup(userId, scanId, category, messageIds, estimatedByt
       messageIds,
       estimatedBytes,
       tokens,
-      tokens.tokenExpiry
+      tokens.tokenExpiry,
+      null,
+      {},
+      userId
     );
     logger.info('Cleanup complete', { actionId: result.actionId, successCount: result.successCount });
     return result;
@@ -213,7 +283,6 @@ async function undoCleanup(actionId, userId, tokens) {
       [actionId]
     );
   } else {
-    // Keep action in complete state so user can retry Undo for remaining IDs.
     await query(
       `UPDATE cleanup_actions
        SET status = 'complete',

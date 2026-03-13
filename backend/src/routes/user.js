@@ -12,7 +12,12 @@ const {
   removeMailbox,
 } = require('../services/mailboxService');
 const { getOAuthTokens } = require('../services/tokenService');
-const { getStorageQuota } = require('../services/gmailService');
+const {
+  getStorageQuota,
+  getGmailClient,
+  createOrUpdateSenderFilter,
+  attemptUnsubscribe,
+} = require('../services/gmailService');
 const logger = require('../utils/logger');
 
 router.get('/quota', requireAuth, async (req, res) => {
@@ -148,6 +153,120 @@ router.delete('/mailboxes/:mailboxId', requireAuth, async (req, res) => {
   }
 });
 
+
+
+router.get('/newsletter/subscriptions', requireAuth, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, sender_domain, sender_email, email_count, unsubscribe_link, status, created_at
+       FROM newsletter_subscriptions
+       WHERE user_id = $1
+       ORDER BY email_count DESC, created_at DESC
+       LIMIT 200`,
+      [req.user.id]
+    );
+    return res.json({ items: rows.rows });
+  } catch (err) {
+    logger.error('Failed to fetch newsletter subscriptions', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to fetch newsletter subscriptions.' });
+  }
+});
+
+router.get('/health/latest', requireAuth, async (req, res) => {
+  try {
+    const latest = await query(
+      `SELECT total_emails, unread_emails, newsletter_emails, promotional_emails,
+              storage_used_mb, health_score, created_at
+       FROM inbox_health
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+    return res.json({ health: latest.rows[0] || null });
+  } catch (err) {
+    logger.error('Failed to fetch inbox health', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to fetch inbox health.' });
+  }
+});
+
+router.post('/unsubscribe/bulk', requireAuth, async (req, res) => {
+  try {
+    const senderDomains = Array.isArray(req.body?.sender_domains)
+      ? req.body.sender_domains.map((s) => String(s || '').toLowerCase().trim()).filter(Boolean)
+      : [];
+
+    if (!senderDomains.length) return res.status(400).json({ error: 'sender_domains[] is required.' });
+
+    const tokens = await getOAuthTokens(req.user.id, req.body?.mailboxId || null);
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+
+    const rows = await query(
+      `SELECT id, sender_domain, sender_email, unsubscribe_link
+       FROM newsletter_subscriptions
+       WHERE user_id = $1 AND sender_domain = ANY($2::text[])`,
+      [req.user.id, senderDomains]
+    );
+
+    const results = [];
+    for (const row of rows.rows) {
+      const unsub = await attemptUnsubscribe(row.unsubscribe_link);
+      if (unsub.ok) {
+        await query(
+          `UPDATE newsletter_subscriptions
+           SET status = 'unsubscribed'
+           WHERE id = $1 AND user_id = $2`,
+          [row.id, req.user.id]
+        );
+        results.push({ sender_domain: row.sender_domain, status: 'unsubscribed' });
+      } else {
+        await createOrUpdateSenderFilter(gmail, row.sender_email || row.sender_domain, 'auto_delete');
+        await query(
+          `UPDATE newsletter_subscriptions
+           SET status = 'blocked'
+           WHERE id = $1 AND user_id = $2`,
+          [row.id, req.user.id]
+        );
+        results.push({ sender_domain: row.sender_domain, status: 'blocked', reason: unsub.reason });
+      }
+    }
+
+    return res.json({ success: true, results });
+  } catch (err) {
+    logger.error('Bulk unsubscribe failed', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to process bulk unsubscribe.' });
+  }
+});
+
+router.post('/senders/block', requireAuth, async (req, res) => {
+  try {
+    const senderEmail = String(req.body?.sender_email || '').trim().toLowerCase();
+    const action = String(req.body?.action || 'auto_delete').toLowerCase();
+    if (!senderEmail || !senderEmail.includes('@')) {
+      return res.status(400).json({ error: 'Valid sender_email is required.' });
+    }
+    if (!['auto_delete', 'archive', 'spam'].includes(action)) {
+      return res.status(400).json({ error: 'action must be auto_delete, archive, or spam.' });
+    }
+
+    const tokens = await getOAuthTokens(req.user.id, req.body?.mailboxId || null);
+    const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
+    const filterResult = await createOrUpdateSenderFilter(gmail, senderEmail, action);
+
+    await query(
+      `INSERT INTO blocked_senders (user_id, sender_email, action)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, sender_email)
+       DO UPDATE SET action = EXCLUDED.action`,
+      [req.user.id, senderEmail, action]
+    );
+
+    return res.json({ success: true, sender_email: senderEmail, action, filter: filterResult });
+  } catch (err) {
+    logger.error('Failed to block sender', err, { userId: req.user.id });
+    return res.status(500).json({ error: 'Failed to block sender.' });
+  }
+});
 /**
  * GET /user/storage-growth
  * Fetches live Gmail storage quota and computes daily growth rate instantly.
