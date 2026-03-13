@@ -104,6 +104,10 @@ export const userApi = {
   getMailboxes: () => api.get('/user/mailboxes'),
   setPrimaryMailbox: (mailboxId) => api.patch(`/user/mailboxes/${mailboxId}/primary`),
   deleteMailbox: (mailboxId) => api.delete(`/user/mailboxes/${mailboxId}`),
+  getNewsletterSubscriptions: () => api.get('/user/newsletter/subscriptions'),
+  bulkUnsubscribe: (payload) => api.post('/user/unsubscribe/bulk', payload),
+  blockSender: (payload) => api.post('/user/senders/block', payload),
+  getLatestHealth: () => api.get('/user/health/latest'),
 };
 
 export const automationApi = {
