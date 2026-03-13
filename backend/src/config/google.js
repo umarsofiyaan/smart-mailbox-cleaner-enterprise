@@ -33,7 +33,7 @@ function getAuthUrl(state, forceConsent = false, loginHint = '') {
     // Only force consent screen when explicitly needed (e.g. first login or revoked access).
     // Omitting prompt lets Google skip the consent screen for returning users
     // while still returning a refresh token if one was previously granted.
-    ...(forceConsent ? { prompt: 'consent' } : { prompt: 'select_account' }),
+    ...(forceConsent ? { prompt: 'consent select_account' } : { prompt: 'select_account' }),
     state: state || '',
     include_granted_scopes: true,
   };
