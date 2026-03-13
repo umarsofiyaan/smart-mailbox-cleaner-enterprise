@@ -23,7 +23,7 @@ function extractSenderEmail(from = '') {
 
 async function applyBlockedSenderRules(userId, gmail, messageIds = []) {
   if (!userId || !Array.isArray(messageIds) || !messageIds.length) {
-    return { handledIds: [], applied: [] };
+    return { handledIds: [], trashedIds: [], applied: [] };
   }
 
   const rulesRes = await query(
@@ -32,7 +32,7 @@ async function applyBlockedSenderRules(userId, gmail, messageIds = []) {
      WHERE user_id = $1`,
     [userId]
   );
-  if (!rulesRes.rows.length) return { handledIds: [], applied: [] };
+  if (!rulesRes.rows.length) return { handledIds: [], trashedIds: [], applied: [] };
 
   const ruleMap = new Map();
   for (const row of rulesRes.rows) {
@@ -51,16 +51,24 @@ async function applyBlockedSenderRules(userId, gmail, messageIds = []) {
   }
 
   const handled = new Set();
+  const trashed = new Set();
   const applied = [];
   for (const [action, ids] of groupedByAction.entries()) {
     const uniq = Array.from(new Set(ids));
     if (!uniq.length) continue;
     const res = await applyActionToMessages(gmail, uniq, action);
-    for (const id of res.success) handled.add(id);
+    for (const id of res.success) {
+      handled.add(id);
+      if (action === 'auto_delete') trashed.add(id);
+    }
     applied.push({ action, success: res.success.length, failed: res.failed.length });
   }
 
-  return { handledIds: Array.from(handled), applied };
+  return {
+    handledIds: Array.from(handled),
+    trashedIds: Array.from(trashed),
+    applied,
+  };
 }
 
 async function snapshotOriginalLabels(actionId, metadata, successfulIds) {
@@ -159,7 +167,7 @@ async function runCleanupAction(
   const metadata = shouldLoadMetadata ? await batchGetMessageMetadata(gmail, messageIds) : [];
 
   const blockedRuleResult = await applyBlockedSenderRules(userId, gmail, messageIds)
-    .catch(() => ({ handledIds: [], applied: [] }));
+    .catch(() => ({ handledIds: [], trashedIds: [], applied: [] }));
   const handledSet = new Set(blockedRuleResult.handledIds || []);
   const remainingIds = messageIds.filter((id) => !handledSet.has(id));
 
@@ -176,13 +184,13 @@ async function runCleanupAction(
     }
   });
 
-  const finalIds = Array.from(new Set([...(result.success || []), ...(blockedRuleResult.handledIds || [])]));
+  const trashedIds = Array.from(new Set([...(result.success || []), ...(blockedRuleResult.trashedIds || [])]));
 
   await query(
     `UPDATE cleanup_actions
      SET status = 'complete', message_ids = $1, message_count = $2
      WHERE id = $3`,
-    [finalIds, finalIds.length, actionId]
+    [trashedIds, trashedIds.length, actionId]
   );
 
   if (shouldLoadMetadata) {
@@ -203,7 +211,7 @@ async function runCleanupAction(
 
   return {
     actionId,
-    successCount: finalIds.length,
+    successCount: trashedIds.length,
     conversationCount,
     failedCount: result.failed.length,
     failedIds: result.failed,
