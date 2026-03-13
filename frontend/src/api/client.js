@@ -75,7 +75,7 @@ export const scanApi = {
   startCustomScan: (params) => api.post('/scan/start-custom', params),
   previewCustomScan: (params) => api.post('/scan/preview-custom', params),
   getScan: (scanId) => api.get(`/scan/${scanId}`),
-  getLatestScan: (mailboxId = null) => api.get('/scan/user/latest', { params: mailboxId ? { mailboxId } : {} }),
+  getLatestScan: (mailboxId = null, options = {}) => api.get('/scan/user/latest', { params: { ...(mailboxId ? { mailboxId } : {}), ...(options || {}) } }),
   getScanHistory: (mailboxId = null) => api.get('/scan/user/history', { params: mailboxId ? { mailboxId } : {} }),
 };
 

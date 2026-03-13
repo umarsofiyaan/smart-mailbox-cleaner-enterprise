@@ -117,9 +117,9 @@ export function useScan() {
 
   // ── Load latest ──────────────────────────────────────────────────────────
 
-  const loadLatestScan = useCallback(async (mailboxId = null) => {
+  const loadLatestScan = useCallback(async (mailboxId = null, options = { preferQuick: true }) => {
     try {
-      const latestRes = await scanApi.getLatestScan(mailboxId);
+      const latestRes = await scanApi.getLatestScan(mailboxId, options);
       const { scanId: latestId } = latestRes.data;
       const scanRes = await scanApi.getScan(latestId);
       setScan(scanRes.data);
