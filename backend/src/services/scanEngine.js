@@ -78,6 +78,142 @@ function applyDepthFilter(baseQuery, scanDepth, categoryKey) {
   return baseQuery;
 }
 
+
+
+const KNOWN_NEWSLETTER_DOMAINS = new Set([
+  'linkedin.com', 'mail.linkedin.com', 'medium.com', 'substack.com', 'mailchimp.com',
+  'sendgrid.net', 'hubspot.com', 'convertkit.com', 'noreply.medium.com', 'github.com',
+]);
+
+function extractSenderEmail(from = '') {
+  const raw = String(from || '').trim();
+  const angled = raw.match(/<([^>]+)>/);
+  const email = (angled ? angled[1] : raw).replace(/^"|"$/g, '').trim().toLowerCase();
+  return email.includes('@') ? email : '';
+}
+
+function extractSenderDomain(from = '') {
+  const email = extractSenderEmail(from);
+  const domain = email.split('@')[1] || '';
+  return domain.toLowerCase();
+}
+
+function isNewsletterMessage(msg) {
+  const domain = extractSenderDomain(msg?.from || '');
+  const listUnsub = String(msg?.listUnsubscribe || '').trim();
+  const snippet = String(msg?.snippet || '').toLowerCase();
+  const hasUnsubscribeInSnippet = /(unsubscribe|manage preferences|email preferences)/i.test(snippet);
+  return Boolean(listUnsub || hasUnsubscribeInSnippet || KNOWN_NEWSLETTER_DOMAINS.has(domain));
+}
+
+function computeHealthScore({ totalEmails = 0, unreadEmails = 0, newsletterEmails = 0 }) {
+  let score = 100;
+  score -= Math.floor(Number(totalEmails || 0) / 500);
+  score -= Math.floor(Number(unreadEmails || 0) / 200);
+  score -= Math.floor(Number(newsletterEmails || 0) / 100);
+  return Math.max(0, Math.min(100, score));
+}
+
+async function persistNewsletterSubscriptions(userId, newsletterMap) {
+  const entries = Array.from(newsletterMap.values());
+  for (const item of entries) {
+    await query(
+      `INSERT INTO newsletter_subscriptions
+         (user_id, sender_domain, sender_email, email_count, unsubscribe_link, status)
+       VALUES ($1, $2, $3, $4, $5, 'active')
+       ON CONFLICT (user_id, sender_domain)
+       DO UPDATE SET
+         sender_email = COALESCE(EXCLUDED.sender_email, newsletter_subscriptions.sender_email),
+         email_count = EXCLUDED.email_count,
+         unsubscribe_link = COALESCE(EXCLUDED.unsubscribe_link, newsletter_subscriptions.unsubscribe_link)`,
+      [userId, item.domain, item.senderEmail || null, item.count || 0, item.unsubscribeLink || null]
+    );
+  }
+}
+
+async function collectInboxAnalytics(gmail, userId, storageInfo, scanDepth = '12months') {
+  const depthSuffix = scanDepth === '24months' ? ' newer_than:730d' : scanDepth === '12months' ? ' newer_than:365d' : '';
+  const baseQuery = `-in:trash -in:spam${depthSuffix}`;
+
+  const allIds = await collectMessageIdsByQuery(gmail, baseQuery, { maxMessages: 5000 });
+  const unreadIds = await collectMessageIdsByQuery(gmail, `is:unread ${baseQuery}`, { maxMessages: 5000 });
+  const promoIds = await collectMessageIdsByQuery(gmail, `category:promotions ${baseQuery}`, { maxMessages: 5000 });
+
+  const sampleIds = allIds.slice(0, 2000);
+  const metadata = sampleIds.length ? await batchGetMessageMetadata(gmail, sampleIds) : [];
+
+  const senderFrequency = {};
+  const topSenderMap = new Map();
+  const newsletterMap = new Map();
+
+  for (const msg of metadata) {
+    const domain = extractSenderDomain(msg.from);
+    if (!domain) continue;
+    senderFrequency[domain] = (senderFrequency[domain] || 0) + 1;
+    topSenderMap.set(domain, (topSenderMap.get(domain) || 0) + 1);
+
+    if (isNewsletterMessage(msg)) {
+      const prev = newsletterMap.get(domain) || {
+        domain,
+        count: 0,
+        senderEmail: extractSenderEmail(msg.from),
+        unsubscribeLink: msg.listUnsubscribe || null,
+      };
+      prev.count += 1;
+      if (!prev.unsubscribeLink && msg.listUnsubscribe) prev.unsubscribeLink = msg.listUnsubscribe;
+      newsletterMap.set(domain, prev);
+    }
+  }
+
+  const sampleCount = Math.max(1, metadata.length);
+  const ratio = allIds.length > sampleCount ? (allIds.length / sampleCount) : 1;
+  const newsletterEstimatedCount = Math.round(Array.from(newsletterMap.values()).reduce((a, b) => a + b.count, 0) * ratio);
+
+  const topSenders = Array.from(topSenderMap.entries())
+    .map(([sender, count]) => ({ sender, count: Math.round(count * ratio) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15);
+
+  const newsletterSenders = Array.from(newsletterMap.values())
+    .map((v) => ({ sender: v.domain, count: Math.round(v.count * ratio) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
+
+  const healthScore = computeHealthScore({
+    totalEmails: allIds.length,
+    unreadEmails: unreadIds.length,
+    newsletterEmails: newsletterEstimatedCount,
+  });
+
+  await persistNewsletterSubscriptions(
+    userId,
+    new Map(Array.from(newsletterMap.entries()).map(([k, v]) => [k, { ...v, count: Math.round(v.count * ratio) }]))
+  );
+
+  await query(
+    `INSERT INTO inbox_health
+       (user_id, total_emails, unread_emails, newsletter_emails, promotional_emails, storage_used_mb, health_score)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      userId,
+      allIds.length,
+      unreadIds.length,
+      newsletterEstimatedCount,
+      promoIds.length,
+      Math.round((Number(storageInfo?.storageUsedBytes || 0)) / (1024 * 1024)),
+      healthScore,
+    ]
+  );
+
+  return {
+    emailsFound: allIds.length,
+    topSenders,
+    newsletterSenders,
+    senderFrequency,
+    healthScore,
+    estimatedStorageMB: Math.round((Number(storageInfo?.storageUsedBytes || 0)) / (1024 * 1024)),
+  };
+}
 async function runScan(scanId, userId, tokens, scanDepth = '12months') {
   const gmail = getGmailClient(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiry);
 
@@ -208,6 +344,7 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
       : null;
 
     const confidenceSummary = buildConfidenceSummary(categoryResults);
+    const analytics = await collectInboxAnalytics(gmail, userId, storageInfo, scanDepth);
 
     await query(
       `UPDATE scans SET
@@ -220,8 +357,13 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
          confidence_summary = $6,
          estimated_bytes_freeable = $7,
          total_messages_scanned = $8,
+         top_senders_json = $9,
+         newsletter_senders_json = $10,
+         sender_frequency_json = $11,
+         health_score = $12,
+         estimated_storage_mb = $13,
          completed_at = NOW()
-       WHERE id = $9`,
+       WHERE id = $14`,
       [
         storageInfo.storageUsedBytes,
         storageInfo.storageQuotaBytes,
@@ -231,6 +373,11 @@ async function runScan(scanId, userId, tokens, scanDepth = '12months') {
         JSON.stringify(confidenceSummary),
         totalFreeableBytes,
         totalMessagesScanned,
+        JSON.stringify(analytics.topSenders || []),
+        JSON.stringify(analytics.newsletterSenders || []),
+        JSON.stringify(analytics.senderFrequency || {}),
+        Number(analytics.healthScore || 0),
+        Number(analytics.estimatedStorageMB || 0),
         scanId,
       ]
     );
@@ -316,6 +463,7 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
     }
 
     const confidenceSummary = buildConfidenceSummary(categoryResults);
+    const analytics = await collectInboxAnalytics(gmail, userId, storageInfo, 'all');
 
     await query(
       `UPDATE scans SET
@@ -327,8 +475,13 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
          confidence_summary = $4,
          estimated_bytes_freeable = $5,
          total_messages_scanned = $6,
+         top_senders_json = $7,
+         newsletter_senders_json = $8,
+         sender_frequency_json = $9,
+         health_score = $10,
+         estimated_storage_mb = $11,
          completed_at = NOW()
-       WHERE id = $7`,
+       WHERE id = $12`,
       [
         storageInfo.storageUsedBytes,
         storageInfo.storageQuotaBytes,
@@ -336,6 +489,11 @@ async function runCustomScan(scanId, userId, tokens, customQuery) {
         JSON.stringify(confidenceSummary),
         totalFreeableBytes,
         messageIds.length,
+        JSON.stringify(analytics.topSenders || []),
+        JSON.stringify(analytics.newsletterSenders || []),
+        JSON.stringify(analytics.senderFrequency || {}),
+        Number(analytics.healthScore || 0),
+        Number(analytics.estimatedStorageMB || 0),
         scanId,
       ]
     );

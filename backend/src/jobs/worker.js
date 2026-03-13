@@ -207,7 +207,8 @@ async function executeCleanupJob(job) {
       },
       {
         snapshotLabels: effectiveIds.length <= FAST_CLEANUP_THRESHOLD,
-      }
+      },
+      job.user_id
     );
     await patchJobPayload(job.id, {
       progress: {

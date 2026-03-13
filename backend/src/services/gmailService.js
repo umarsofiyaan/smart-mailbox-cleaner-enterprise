@@ -174,8 +174,8 @@ async function getMessageMetadata(gmail, messageId) {
       userId: 'me',
       id: messageId,
       format: 'metadata',
-      metadataHeaders: ['From', 'To', 'Subject', 'Date'],
-      fields: 'id,threadId,labelIds,sizeEstimate,internalDate,payload/headers,payload/mimeType',
+      metadataHeaders: ['From', 'To', 'Subject', 'Date', 'List-Unsubscribe'],
+      fields: 'id,threadId,labelIds,sizeEstimate,internalDate,snippet,payload/headers,payload/mimeType',
     })
   );
 
@@ -195,6 +195,8 @@ async function getMessageMetadata(gmail, messageId) {
     subject: headers['subject'] || '',
     date: headers['date'] || '',
     mimeType: msg.payload?.mimeType || '',
+    snippet: msg.snippet || '',
+    listUnsubscribe: headers['list-unsubscribe'] || '',
   };
 }
 
@@ -202,6 +204,96 @@ async function getMessageMetadata(gmail, messageId) {
  * Fetch metadata for a batch of messages using parallel requests with throttling.
  * Handles up to 500 IDs per call.
  */
+
+function getBatchModifyAction(action = 'auto_delete') {
+  const normalized = String(action || 'auto_delete').toLowerCase();
+  if (normalized === 'archive') {
+    return { addLabelIds: [], removeLabelIds: ['INBOX'] };
+  }
+  if (normalized === 'spam') {
+    return { addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] };
+  }
+  return { addLabelIds: ['TRASH'], removeLabelIds: ['INBOX', 'UNREAD'] };
+}
+
+async function applyActionToMessages(gmail, messageIds, action = 'auto_delete', onProgress = null) {
+  const BATCH_SIZE = 500;
+  const ids = Array.isArray(messageIds) ? messageIds : [];
+  const results = { success: [], failed: [] };
+  const total = ids.length;
+  if (!ids.length) return results;
+
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    const labelAction = getBatchModifyAction(action);
+    try {
+      await withBackoff(() =>
+        gmail.users.messages.batchModify({
+          userId: 'me',
+          requestBody: {
+            ids: batch,
+            addLabelIds: labelAction.addLabelIds,
+            removeLabelIds: labelAction.removeLabelIds,
+          },
+        })
+      );
+      results.success.push(...batch);
+    } catch (err) {
+      logger.error('applyActionToMessages failed for batch', err, { batchSize: batch.length, action });
+      results.failed.push(...batch);
+    }
+
+    if (typeof onProgress === 'function') {
+      await onProgress({ movedCount: results.success.length, failedCount: results.failed.length, totalCount: total });
+    }
+
+    if (i + BATCH_SIZE < ids.length) await sleep(TRASH_BATCH_DELAY_MS);
+  }
+
+  return results;
+}
+
+async function createOrUpdateSenderFilter(gmail, senderEmail, action = 'auto_delete') {
+  const criteria = { from: senderEmail };
+  const labelAction = getBatchModifyAction(action);
+  try {
+    const res = await withBackoff(() =>
+      gmail.users.settings.filters.create({
+        userId: 'me',
+        requestBody: {
+          criteria,
+          action: labelAction,
+        },
+      })
+    );
+    return { created: true, filterId: res.data?.id || null, duplicate: false };
+  } catch (err) {
+    const message = err?.response?.data?.error?.message || err?.message || '';
+    if (/already exists|duplicate|exists/i.test(message)) {
+      return { created: false, duplicate: true, filterId: null };
+    }
+    throw err;
+  }
+}
+
+async function attemptUnsubscribe(unsubscribeLink) {
+  const raw = String(unsubscribeLink || '').trim();
+  if (!raw) return { ok: false, reason: 'missing_link' };
+
+  const cleaned = raw.split(',').map(v => v.trim().replace(/^<|>$/g, '')).find(Boolean) || '';
+  if (!cleaned) return { ok: false, reason: 'missing_link' };
+  if (cleaned.toLowerCase().startsWith('mailto:')) {
+    return { ok: false, reason: 'mailto_not_supported' };
+  }
+
+  try {
+    const res = await fetch(cleaned, { method: 'GET', redirect: 'follow' });
+    return { ok: res.ok, status: res.status, reason: res.ok ? null : 'http_failed' };
+  } catch (err) {
+    return { ok: false, reason: err.message || 'request_failed' };
+  }
+}
+
 async function batchGetMessageMetadata(gmail, messageIds) {
   const BATCH_SIZE = 50;
   const results = [];
@@ -237,7 +329,7 @@ async function batchGetMessageMetadata(gmail, messageIds) {
  * @param {string[]} messageIds
  */
 async function batchTrashMessages(gmail, messageIds, onProgress = null) {
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 500;
   const results = { success: [], failed: [] };
   const total = messageIds.length;
 
@@ -367,7 +459,7 @@ async function getTrashConversationEstimate(gmail) {
  * Removes TRASH label.
  */
 async function batchRestoreMessages(gmail, messageIds) {
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 500;
   const results = { success: [], failed: [] };
 
   for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
@@ -402,7 +494,7 @@ async function batchRestoreMessages(gmail, messageIds) {
  * labelsByMessageId shape: { [messageId]: string[] }
  */
 async function batchRestoreMessagesWithLabels(gmail, messageIds, labelsByMessageId = {}) {
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 500;
   const results = { success: [], failed: [] };
   const NON_RESTORABLE_LABELS = new Set(['TRASH', 'DRAFT']);
 
@@ -503,6 +595,9 @@ module.exports = {
   batchTrashMessages,
   batchRestoreMessages,
   batchRestoreMessagesWithLabels,
+  applyActionToMessages,
+  createOrUpdateSenderFilter,
+  attemptUnsubscribe,
   getThreadMessageCount,
   withBackoff,
   sleep,
