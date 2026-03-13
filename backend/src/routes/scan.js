@@ -101,6 +101,23 @@ router.get('/user/latest', requireAuth, async (req, res) => {
     mailboxFilter = 'AND mailbox_id = $2';
     params.push(req.query.mailboxId);
   }
+
+  // Optional: prefer the latest quick/full scan over custom query scans for dashboard default view.
+  const preferQuick = String(req.query.preferQuick || '').toLowerCase() === 'true';
+  if (preferQuick) {
+    const quickResult = await query(
+      `SELECT id FROM scans
+       WHERE user_id = $1 ${mailboxFilter}
+         AND status = 'complete'
+         AND scan_depth IN ('12months', '24months', 'all')
+       ORDER BY completed_at DESC LIMIT 1`,
+      params
+    );
+    if (quickResult.rows.length > 0) {
+      return res.json({ scanId: quickResult.rows[0].id });
+    }
+  }
+
   const result = await query(
     `SELECT id FROM scans
      WHERE user_id = $1 ${mailboxFilter} AND status = 'complete'
@@ -112,7 +129,6 @@ router.get('/user/latest', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'No completed scans found.' });
   }
 
-  // Redirect to the scan detail endpoint
   return res.json({ scanId: result.rows[0].id });
 });
 
