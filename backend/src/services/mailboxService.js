@@ -172,6 +172,12 @@ async function upsertConnectedMailbox(
     }
   }
 
+  // Keep the existing primary mailbox unless this is the very first active
+  // mailbox for the user or the caller explicitly requested promotion.
+  const shouldBecomePrimary = makePrimary
+    || Boolean(existing.rows[0]?.is_primary)
+    || (!existing.rows[0] && activeMailboxCount === 0);
+
   const client = await getClient();
   try {
     await client.query('BEGIN');
