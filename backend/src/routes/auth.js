@@ -181,7 +181,7 @@ router.get('/google/connect', requireAuth, authLimiter, async (req, res) => {
   try {
     const nonce = crypto.randomBytes(16).toString('hex');
     const state = createOAuthState('connect', nonce, req.user.id);
-    const authUrl = getAuthUrl(state, true, req.user.email);
+    const authUrl = getAuthUrl(state, true);
     res.cookie('oauth_state_nonce', nonce, OAUTH_STATE_COOKIE_OPTIONS);
     res.cookie('oauth_connect_user', req.user.id, OAUTH_CONNECT_COOKIE_OPTIONS);
     return res.json({ url: authUrl });

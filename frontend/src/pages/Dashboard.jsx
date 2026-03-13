@@ -305,8 +305,15 @@ export default function Dashboard() {
       const limit = Number(res.data?.limit || 1);
       setMailboxes(items);
       setMailboxLimit(limit);
+
       const primary = items.find((m) => m.is_primary);
-      const nextSelected = preferredId || selectedMailboxId || primary?.id || items[0]?.id || '';
+      const hasMailbox = (id) => !!id && items.some((m) => m.id === id);
+      const nextSelected = hasMailbox(preferredId)
+        ? preferredId
+        : hasMailbox(selectedMailboxId)
+          ? selectedMailboxId
+          : (primary?.id || items[0]?.id || '');
+
       setSelectedMailboxId(nextSelected);
       if (nextSelected) await loadLatestScan(nextSelected);
     } catch {
