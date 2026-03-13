@@ -1106,104 +1106,119 @@ export default function Dashboard() {
               </p>
             </div>
 
-            <div className="grid lg:grid-cols-3 gap-6 mb-6">
-              <div className="lg:col-span-1 bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">Inbox Health Score</p>
-                <p className="text-4xl font-bold text-gray-900 mt-2">{Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0)}<span className="text-lg text-gray-500"> / 100</span></p>
-                <div className="w-full h-2 bg-gray-100 rounded-full mt-3 overflow-hidden">
-                  <div
-                    className={`h-full transition-all ${Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0) >= 80 ? 'bg-emerald-500' : Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                    style={{ width: `${Math.max(0, Math.min(100, Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0)))}%` }}
-                  />
+            <div className="bg-white border border-gray-100 rounded-2xl p-6 mb-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Inbox Command Center</p>
+                  <h3 className="text-lg font-bold text-gray-900 mt-1">Manage clutter and protect your inbox</h3>
                 </div>
-                <ul className="text-xs text-gray-600 mt-4 space-y-1">
-                  <li>Unread emails: <strong>{Number(healthSnapshot?.unread_emails || 0).toLocaleString()}</strong></li>
-                  <li>Newsletter emails: <strong>{Number(healthSnapshot?.newsletter_emails || 0).toLocaleString()}</strong></li>
-                  <li>Storage used: <strong>{Number(scan?.estimatedStorageMB || healthSnapshot?.storage_used_mb || 0).toLocaleString()} MB</strong></li>
-                </ul>
+                <span className="text-xs text-gray-500 bg-gray-50 border border-gray-200 px-3 py-1 rounded-full">
+                  Powered by latest scan analytics
+                </span>
               </div>
 
-              <div className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-indigo-700 font-semibold">Unsubscribe from everything</p>
-                    <p className="text-sm text-gray-500 mt-1">Select subscriptions, then bulk-unsubscribe. If unsubscribe fails, we auto-create Gmail filters.</p>
+              <div className="grid lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1 bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">Inbox Health Score</p>
+                  <p className="text-4xl font-bold text-gray-900 mt-2">
+                    {Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0)}
+                    <span className="text-lg text-gray-500"> / 100</span>
+                  </p>
+                  <div className="w-full h-2 bg-gray-200 rounded-full mt-3 overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0) >= 80 ? 'bg-emerald-500' : Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                      style={{ width: `${Math.max(0, Math.min(100, Number(scan?.healthScore ?? healthSnapshot?.health_score ?? 0)))}%` }}
+                    />
                   </div>
-                  <button
-                    onClick={handleBulkUnsubscribe}
-                    disabled={!selectedNewsletterDomains.length || bulkUnsubscribing}
-                    className="bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {bulkUnsubscribing ? 'Processing...' : `Unsubscribe ${selectedNewsletterDomains.length ? `(${selectedNewsletterDomains.length})` : ''}`}
-                  </button>
+                  <ul className="text-xs text-gray-600 mt-4 space-y-1">
+                    <li>Unread emails: <strong>{Number(healthSnapshot?.unread_emails || 0).toLocaleString()}</strong></li>
+                    <li>Newsletter emails: <strong>{Number(healthSnapshot?.newsletter_emails || 0).toLocaleString()}</strong></li>
+                    <li>Storage used: <strong>{Number(scan?.estimatedStorageMB || healthSnapshot?.storage_used_mb || 0).toLocaleString()} MB</strong></li>
+                  </ul>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-2 mt-4 max-h-56 overflow-auto pr-1">
-                  {(newsletterItems.length ? newsletterItems : (scan?.newsletterSenders || []).map((v) => ({ sender_domain: v.sender, email_count: v.count, status: 'active' })))
-                    .slice(0, 20)
-                    .map((item) => {
-                      const domain = String(item.sender_domain || '').toLowerCase();
-                      const checked = selectedNewsletterDomains.includes(domain);
-                      return (
-                        <label key={domain} className="flex items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 hover:bg-gray-50">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedNewsletterDomains((prev) => Array.from(new Set([...prev, domain])));
-                              else setSelectedNewsletterDomains((prev) => prev.filter((d) => d !== domain));
-                            }}
-                          />
-                          <span className="text-sm text-gray-800 flex-1 truncate">{domain}</span>
-                          <span className="text-xs text-gray-500">{Number(item.email_count || item.count || 0).toLocaleString()}</span>
-                        </label>
-                      );
-                    })}
-                </div>
-              </div>
-            </div>
+                <div className="lg:col-span-2 bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-indigo-700 font-semibold">Unsubscribe from everything</p>
+                      <p className="text-sm text-gray-500 mt-1">Select subscriptions, then bulk-unsubscribe. If unsubscribe fails, we auto-create Gmail filters.</p>
+                    </div>
+                    <button
+                      onClick={handleBulkUnsubscribe}
+                      disabled={!selectedNewsletterDomains.length || bulkUnsubscribing}
+                      className="bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {bulkUnsubscribing ? 'Processing...' : `Unsubscribe ${selectedNewsletterDomains.length ? `(${selectedNewsletterDomains.length})` : ''}`}
+                    </button>
+                  </div>
 
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm mb-6">
-              <p className="text-xs uppercase tracking-wide text-rose-700 font-semibold">Block future emails from sender</p>
-              <p className="text-sm text-gray-500 mt-1">Create a Gmail rule to auto-delete, archive, or send future emails to spam.</p>
-              <div className="mt-3 grid md:grid-cols-4 gap-2">
-                <input
-                  value={blockingSender}
-                  onChange={(e) => setBlockingSender(e.target.value)}
-                  placeholder="sender@example.com"
-                  className="md:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                />
-                <select value={senderAction} onChange={(e) => setSenderAction(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="auto_delete">Auto-delete</option>
-                  <option value="archive">Archive</option>
-                  <option value="spam">Mark as spam</option>
-                </select>
-                <button
-                  onClick={handleBlockSenderAction}
-                  disabled={senderActionBusy || !blockingSender.trim()}
-                  className="bg-gray-900 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-black disabled:opacity-50"
-                >
-                  {senderActionBusy ? 'Saving...' : 'Apply rule'}
-                </button>
-              </div>
+                  <div className="grid md:grid-cols-2 gap-2 mt-4 max-h-52 overflow-auto pr-1">
+                    {(newsletterItems.length ? newsletterItems : (scan?.newsletterSenders || []).map((v) => ({ sender_domain: v.sender, email_count: v.count, status: 'active' })))
+                      .slice(0, 20)
+                      .map((item) => {
+                        const domain = String(item.sender_domain || '').toLowerCase();
+                        const checked = selectedNewsletterDomains.includes(domain);
+                        return (
+                          <label key={domain} className="flex items-center gap-2 border border-gray-200 bg-white rounded-lg px-3 py-2 hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedNewsletterDomains((prev) => Array.from(new Set([...prev, domain])));
+                                else setSelectedNewsletterDomains((prev) => prev.filter((d) => d !== domain));
+                              }}
+                            />
+                            <span className="text-sm text-gray-800 flex-1 truncate">{domain}</span>
+                            <span className="text-xs text-gray-500">{Number(item.email_count || item.count || 0).toLocaleString()}</span>
+                          </label>
+                        );
+                      })}
+                  </div>
 
-              {!!(scan?.topSenders?.length || topSenders.length) && (
-                <div className="mt-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Top inbox offenders</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(scan?.topSenders?.length ? scan.topSenders.map((v) => [v.sender, v.count]) : topSenders).slice(0, 8).map(([sender, count]) => (
+                  <div className="border-t border-gray-200 mt-4 pt-4">
+                    <p className="text-xs uppercase tracking-wide text-rose-700 font-semibold">Block future emails from sender</p>
+                    <p className="text-sm text-gray-500 mt-1">Create a Gmail rule to auto-delete, archive, or send future emails to spam.</p>
+                    <div className="mt-3 grid md:grid-cols-4 gap-2">
+                      <input
+                        value={blockingSender}
+                        onChange={(e) => setBlockingSender(e.target.value)}
+                        placeholder="sender@example.com"
+                        className="md:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                      />
+                      <select value={senderAction} onChange={(e) => setSenderAction(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                        <option value="auto_delete">Auto-delete</option>
+                        <option value="archive">Archive</option>
+                        <option value="spam">Mark as spam</option>
+                      </select>
                       <button
-                        key={sender}
-                        onClick={() => setBlockingSender(String(sender || '').toLowerCase())}
-                        className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full"
-                        title="Use sender in block form"
+                        onClick={handleBlockSenderAction}
+                        disabled={senderActionBusy || !blockingSender.trim()}
+                        className="bg-gray-900 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-black disabled:opacity-50"
                       >
-                        {String(sender)} ({Number(count || 0).toLocaleString()})
+                        {senderActionBusy ? 'Saving...' : 'Apply rule'}
                       </button>
-                    ))}
+                    </div>
+
+                    {!!(scan?.topSenders?.length || topSenders.length) && (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Top inbox offenders</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(scan?.topSenders?.length ? scan.topSenders.map((v) => [v.sender, v.count]) : topSenders).slice(0, 8).map(([sender, count]) => (
+                            <button
+                              key={sender}
+                              onClick={() => setBlockingSender(String(sender || '').toLowerCase())}
+                              className="text-xs bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-full"
+                              title="Use sender in block form"
+                            >
+                              {String(sender)} ({Number(count || 0).toLocaleString()})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Summary card */}
@@ -1342,19 +1357,6 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {topSenders.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                    <p className="text-sm font-bold text-gray-900 mb-3">Top inbox senders</p>
-                    <div className="space-y-2">
-                      {topSenders.map(([sender, count]) => (
-                        <div key={sender} className="flex justify-between text-sm">
-                          <span className="text-gray-600 truncate pr-3">{sender}</span>
-                          <span className="font-semibold text-gray-900">{count.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Right: categories */}
