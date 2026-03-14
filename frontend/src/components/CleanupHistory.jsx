@@ -135,6 +135,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
   const isUndone = action.status === 'undone';
   const isFailed = action.status === 'failed';
   const isPending = action.status === 'pending';
+  const hasRecoverablePartial = Number(action.recoverableMovedCount || action.movedCount || 0) > 0;
   const processedCount = action.processedCount || 0;
   const movedCount = action.movedCount || action.messageCount || 0;
   const conversationCount = action.conversationCount || 0;
@@ -161,6 +162,11 @@ function HistoryRow({ action, onUndo, undoingId }) {
           <p className="text-xs text-gray-500 mt-0.5">
             Processed {processedCount.toLocaleString()} messages - moved {movedCount.toLocaleString()} messages
             {conversationCount > 0 ? ` - ${conversationCount.toLocaleString()} conversations in Gmail` : ''}
+          </p>
+        )}
+        {!isPending && processedCount === 0 && hasRecoverablePartial && (
+          <p className="text-xs text-gray-500 mt-0.5">
+            {Number(action.recoverableMovedCount || movedCount || 0).toLocaleString()} moved emails can still be restored.
           </p>
         )}
         {!isPending && trashConversationsBefore > 0 && (
@@ -207,9 +213,9 @@ function HistoryRow({ action, onUndo, undoingId }) {
       </div>
 
       <div className="flex-shrink-0 relative">
-        {isPending ? (
+        {isPending && !canUndo ? (
           <span className="text-xs font-medium text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg">Running</span>
-        ) : isFailed ? (
+        ) : isFailed && !canUndo ? (
           <span className="text-xs font-medium text-red-700 bg-red-50 px-3 py-1.5 rounded-lg">Failed</span>
         ) : isUndone ? (
           <span className="text-xs font-medium text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">Restored</span>
@@ -219,7 +225,7 @@ function HistoryRow({ action, onUndo, undoingId }) {
             disabled={isUndoing}
             className="text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
           >
-            {isUndoing ? 'Restoring...' : 'Undo'}
+            {isUndoing ? 'Restoring...' : (isFailed || isPending ? 'Restore moved emails' : 'Undo')}
           </button>
         ) : (
           <div
