@@ -47,6 +47,13 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests. Please wait before trying again.' },
   skip: (req) => {
     if (req.path === '/health') return true;
+
+    // Poll-heavy authenticated endpoints should not be blocked by the global limiter,
+    // especially during large cleanup jobs where the dashboard refreshes status often.
+    if (req.method === 'GET' && req.path === '/cleanup/history') return true;
+    if (req.method === 'GET' && req.path.startsWith('/cleanup/job/')) return true;
+    if (req.method === 'GET' && /^\/scan\/[0-9a-fA-F-]{36}$/.test(req.path)) return true;
+
     return false;
   },
 });

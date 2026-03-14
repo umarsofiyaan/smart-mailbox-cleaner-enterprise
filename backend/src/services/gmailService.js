@@ -385,6 +385,7 @@ async function batchTrashMessages(gmail, messageIds, onProgress = null) {
         movedCount: results.success.length,
         failedCount: results.failed.length,
         totalCount: total,
+        movedIds: results.success,
       });
     }
   }
