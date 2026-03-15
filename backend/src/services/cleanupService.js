@@ -144,8 +144,10 @@ async function createCleanupAction(
        (user_id, scan_id, mailbox_id, category, message_ids, status, bytes_freed, message_count)
      VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
      RETURNING id`,
-    [userId, scanId, mailboxId, category, [], estimatedBytes, expectedMessageCount]
+    // message_count tracks moved/restorable message count, so start at 0.
+    [userId, scanId, mailboxId, category, [], estimatedBytes, 0]
   );
+
   return actionResult.rows[0];
 }
 
@@ -172,11 +174,13 @@ async function runCleanupAction(
   const remainingIds = messageIds.filter((id) => !handledSet.has(id));
 
   const result = await batchTrashMessages(gmail, remainingIds, async (progress) => {
+    const partialMovedIds = Array.from(new Set([...(progress.movedIds || []), ...(blockedRuleResult.trashedIds || [])]));
     await query(
       `UPDATE cleanup_actions
-       SET message_count = $1
-       WHERE id = $2 AND status = 'pending'`,
-      [progress.movedCount, actionId]
+       SET message_count = $1,
+           message_ids = $2
+       WHERE id = $3 AND status = 'pending'`,
+      [partialMovedIds.length, partialMovedIds, actionId]
     );
 
     if (typeof onProgress === 'function') {
@@ -264,7 +268,30 @@ async function undoCleanup(actionId, userId, tokens) {
   if (action.status === 'undone') {
     return { actionId, successCount: 0, failedCount: 0, alreadyUndone: true };
   }
-  if (action.status !== 'complete') throw new Error('Only completed cleanups can be undone.');
+
+  const latestJob = await query(
+    `SELECT status
+     FROM jobs
+     WHERE user_id = $1
+       AND job_type = 'CLEANUP'
+       AND COALESCE(payload->>'actionId', '') = $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId, actionId]
+  );
+  const latestJobStatus = latestJob.rows[0]?.status || null;
+
+  const isRecoverableStatus = ['complete', 'failed', 'pending'].includes(action.status);
+  if (!isRecoverableStatus) {
+    throw new Error('This cleanup cannot be restored.');
+  }
+  if (latestJobStatus === 'queued' || latestJobStatus === 'running') {
+    throw new Error('Cleanup is still running. Please retry restore in a minute.');
+  }
+  if (!Array.isArray(action.message_ids) || action.message_ids.length === 0) {
+    throw new Error('No moved emails found to restore for this cleanup.');
+  }
+
   if (new Date(action.expires_at) < new Date()) {
     throw new Error('Undo window has expired (30 days).');
   }
@@ -313,7 +340,8 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
   const [data, count] = await Promise.all([
     query(
       `SELECT id, category, status, message_count, bytes_freed,
-              executed_at, undone_at, expires_at, error_message
+              executed_at, undone_at, expires_at, error_message,
+              COALESCE(array_length(message_ids, 1), 0) AS moved_snapshot_count
        FROM cleanup_actions
        WHERE user_id = $1
        ORDER BY executed_at DESC
@@ -329,7 +357,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
   const jobMetaByAction = new Map();
   if (actionIds.length > 0) {
     const jobs = await query(
-      `SELECT payload
+      `SELECT payload, status
        FROM jobs
        WHERE user_id = $1
          AND job_type = 'CLEANUP'
@@ -362,6 +390,7 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
         progressFailedCount: Number(progress.failedCount || 0),
         progressTotalCount: Number(progress.totalCount || 0),
         usedFastMode: !!result.usedFastMode,
+        jobStatus: row.status || null,
       });
     }
   }
@@ -378,7 +407,12 @@ async function getCleanupHistory(userId, limit = 10, offset = 0) {
       undoneAt: row.undone_at,
       expiresAt: row.expires_at,
       errorMessage: row.error_message || null,
-      canUndo: row.status === 'complete' && new Date(row.expires_at) > new Date(),
+      recoverableMovedCount: Number(row.moved_snapshot_count || 0),
+      canUndo:
+        ['complete', 'failed', 'pending'].includes(row.status)
+        && Number(row.moved_snapshot_count || 0) > 0
+        && (jobMetaByAction.get(row.id)?.jobStatus !== 'running' && jobMetaByAction.get(row.id)?.jobStatus !== 'queued')
+        && new Date(row.expires_at) > new Date(),
     })),
     total,
     limit: safeLimit,

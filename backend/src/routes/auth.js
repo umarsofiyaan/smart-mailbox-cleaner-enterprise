@@ -4,7 +4,7 @@ const { body, validationResult } = require('express-validator');
 const crypto = require('crypto');
 const router = express.Router();
 
-const { getAuthUrl, exchangeCode, getGoogleProfile } = require('../config/google');
+const { getAuthUrl, exchangeCode, getGoogleProfile, createPkcePair } = require('../config/google');
 const { query, getClient } = require('../config/database');
 const {
   generateAccessToken,
@@ -57,6 +57,15 @@ const OAUTH_STATE_COOKIE_OPTIONS = {
 };
 
 const OAUTH_CONNECT_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 10 * 60 * 1000,
+  path: '/auth/google/callback',
+};
+
+
+const OAUTH_PKCE_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
@@ -169,11 +178,18 @@ async function consumePendingExtensionSession(code) {
 router.get('/google', authLimiter, (req, res) => {
   const requestedState = req.query.state || '';
   const mode = requestedState === 'extension' ? 'extension' : 'web';
+  const scopeBundle = req.query.scope === 'storage' ? 'storage' : 'core';
   const nonce = crypto.randomBytes(16).toString('hex');
   const state = createOAuthState(mode, nonce);
   const forceConsent = req.query.force === 'true';
-  const authUrl      = getAuthUrl(state, forceConsent);
+  const { codeVerifier, codeChallenge } = createPkcePair();
+  const authUrl = getAuthUrl(state, {
+    forceConsent,
+    scopeBundle,
+    codeChallenge,
+  });
   res.cookie('oauth_state_nonce', nonce, OAUTH_STATE_COOKIE_OPTIONS);
+  res.cookie('oauth_pkce_verifier', codeVerifier, OAUTH_PKCE_COOKIE_OPTIONS);
   res.json({ url: authUrl });
 });
 
@@ -181,9 +197,15 @@ router.get('/google/connect', requireAuth, authLimiter, async (req, res) => {
   try {
     const nonce = crypto.randomBytes(16).toString('hex');
     const state = createOAuthState('connect', nonce, req.user.id);
-    const authUrl = getAuthUrl(state, true);
+    const { codeVerifier, codeChallenge } = createPkcePair();
+    const authUrl = getAuthUrl(state, {
+      forceConsent: true,
+      scopeBundle: 'storage',
+      codeChallenge,
+    });
     res.cookie('oauth_state_nonce', nonce, OAUTH_STATE_COOKIE_OPTIONS);
     res.cookie('oauth_connect_user', req.user.id, OAUTH_CONNECT_COOKIE_OPTIONS);
+    res.cookie('oauth_pkce_verifier', codeVerifier, OAUTH_PKCE_COOKIE_OPTIONS);
     return res.json({ url: authUrl });
   } catch (err) {
     logger.error('Failed to create connect mailbox URL', err, { userId: req.user.id });
@@ -198,8 +220,10 @@ router.get('/google/callback', authLimiter, async (req, res) => {
   const { code, state, error } = req.query;
   const stateNonce = req.cookies?.oauth_state_nonce;
   const connectCookieUserId = req.cookies?.oauth_connect_user;
+  const pkceVerifier = req.cookies?.oauth_pkce_verifier;
   res.clearCookie('oauth_state_nonce', { path: '/auth/google/callback' });
   res.clearCookie('oauth_connect_user', { path: '/auth/google/callback' });
+  res.clearCookie('oauth_pkce_verifier', { path: '/auth/google/callback' });
 
   if (error) {
     logger.warn('Google OAuth error returned', { error });
@@ -208,6 +232,11 @@ router.get('/google/callback', authLimiter, async (req, res) => {
 
   if (!code) {
     return res.redirect(`${process.env.FRONTEND_URL}/login?error=no_code`);
+  }
+
+  if (!pkceVerifier) {
+    logger.warn('Missing PKCE verifier in OAuth callback');
+    return res.redirect(`${process.env.FRONTEND_URL}/login?error=invalid_state`);
   }
 
   const verified = verifyOAuthState(state, stateNonce);
@@ -219,7 +248,7 @@ router.get('/google/callback', authLimiter, async (req, res) => {
   const isConnectMode = verified.payload.mode === 'connect';
 
   try {
-    const tokens  = await exchangeCode(code);
+    const tokens  = await exchangeCode(code, pkceVerifier);
     const profile = await getGoogleProfile(tokens.access_token);
 
     if (isConnectMode) {
