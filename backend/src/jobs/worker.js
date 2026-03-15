@@ -30,6 +30,7 @@ const POLL_INTERVAL_MS = 10000;
 const CRON_INTERVAL_MS = 60000;
 const MAX_CONCURRENT_JOBS = 3;
 const FAST_CLEANUP_THRESHOLD = parseInt(process.env.FAST_CLEANUP_THRESHOLD, 10) || 2000;
+const STALE_CLEANUP_JOB_MINUTES = parseInt(process.env.STALE_CLEANUP_JOB_MINUTES, 10) || 20;
 
 let activeJobs = 0;
 let isRunning  = false;
@@ -46,8 +47,42 @@ function startWorker() {
 
 async function poll() {
   if (!isRunning) return;
+  await markStaleCleanupJobsFailed();
   if (activeJobs < MAX_CONCURRENT_JOBS) await processNextJob();
   setTimeout(poll, POLL_INTERVAL_MS);
+}
+
+async function markStaleCleanupJobsFailed() {
+  try {
+    const staleJobs = await query(
+      `UPDATE jobs
+       SET status = 'failed',
+           error_message = COALESCE(error_message, 'Cleanup job timed out while processing.'),
+           completed_at = NOW()
+       WHERE job_type = 'CLEANUP'
+         AND status = 'running'
+         AND started_at < NOW() - ($1 || ' minutes')::interval
+       RETURNING id, payload, user_id`,
+      [String(Math.max(5, STALE_CLEANUP_JOB_MINUTES))]
+    );
+
+    for (const row of staleJobs.rows) {
+      const actionId = row.payload?.actionId;
+      if (!actionId) continue;
+      await query(
+        `UPDATE cleanup_actions
+         SET status = 'failed',
+             error_message = 'Cleanup timed out. You can restore moved emails from Cleanup History.'
+         WHERE id = $1
+           AND user_id = $2
+           AND status = 'pending'`,
+        [actionId, row.user_id]
+      );
+      logger.warn('Marked stale cleanup job as failed', { jobId: row.id, actionId });
+    }
+  } catch (err) {
+    logger.error('Failed stale cleanup job sweep', err);
+  }
 }
 
 async function processNextJob() {

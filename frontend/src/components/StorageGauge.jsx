@@ -185,7 +185,7 @@ export default function StorageGauge({ storage, liveStorage, liveStorageLoading 
             </p>
           </div>
           <a
-            href={`${BACKEND_URL}/auth/google?force=true`}
+            href={`${BACKEND_URL}/auth/google?force=true&scope=storage`}
             className="flex-shrink-0 mt-0.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
           >
             Reconnect
