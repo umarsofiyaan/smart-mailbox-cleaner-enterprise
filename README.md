@@ -99,6 +99,7 @@ When you self-host, your IT admin creates the OAuth app in **your own GCP projec
 ### Prerequisites
 
 - **Docker** & **Docker Compose v2**
+- **Enterprise License Key** — Contact [enterprise@smartmailboxcleaner.com](mailto:enterprise@smartmailboxcleaner.com) to get your license
 - A **Google Cloud Platform** project with:
   - Gmail API enabled
   - Google Drive API enabled
