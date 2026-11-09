@@ -1,0 +1,38 @@
+# Enterprise Self-Hosted Edition — Enterprise License Agreement
+
+Copyright (c) 2026 Smart Mailbox Cleaner. All rights reserved.
+
+## Terms
+
+This software is licensed, not sold. A valid enterprise license is required
+for production use. Contact enterprise@smartmailboxcleaner.com for licensing.
+
+### Permitted Use
+
+With a valid license, you may:
+- Deploy the software on your organization's infrastructure
+- Use the software for your organization's internal business purposes
+- Create backup copies for disaster recovery
+
+### Restrictions
+
+You may NOT:
+- Redistribute, sublicense, or resell the software
+- Reverse engineer, decompile, or disassemble the software
+- Remove or alter any proprietary notices
+- Use the software to provide services to third parties (SaaS/hosting)
+- Share Docker image access credentials with unauthorized parties
+
+### 30-Day Pilot
+
+A free 30-day pilot license is available for evaluation.
+Contact enterprise@smartmailboxcleaner.com to request access.
+
+### Support
+
+Enterprise licenses include email support. Premium support with SLA
+is available for Enterprise-tier licenses.
+
+### Warranty Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

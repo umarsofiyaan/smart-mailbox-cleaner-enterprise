@@ -1,0 +1,76 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Smart Mailbox Cleaner — Enterprise Self-Hosted Deployment
+#
+# Deploy:  docker compose up -d
+# Stop:    docker compose down
+# Update:  docker compose pull && docker compose up -d
+# Logs:    docker compose logs -f backend
+# ═══════════════════════════════════════════════════════════════════════
+
+services:
+  # ─── PostgreSQL Database ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: smc-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartmailbox}
+      POSTGRES_USER: ${POSTGRES_USER:-smartmailbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartmailbox}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smc-net
+
+  # ─── Backend API + Worker ─────────────────────────────────────────────
+  backend:
+    image: ghcr.io/umarsofiyaan/smart-mailbox-cleaner-backend:latest
+    container_name: smc-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smartmailbox}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smartmailbox}
+      DB_SSL: "false"
+      FRONTEND_URL: ${FRONTEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+      PUBLIC_APP_URL: ${FRONTEND_URL}
+      GOOGLE_REDIRECT_URI: ${BACKEND_URL}/auth/google/callback
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    networks:
+      - smc-net
+
+  # ─── Frontend (Nginx + Pre-rendered Static Files) ────────────────────
+  frontend:
+    image: ghcr.io/umarsofiyaan/smart-mailbox-cleaner-frontend:latest
+    container_name: smc-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - smc-net
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  smc-net:
+    driver: bridge
