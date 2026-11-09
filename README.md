@@ -21,18 +21,18 @@ Smart Mailbox Cleaner helps organizations **reclaim 30-50% of Gmail storage** ac
 
 The **Enterprise Self-Hosted Edition** runs entirely inside your infrastructure:
 
-| Feature | Cloud (SaaS) | Self-Hosted ✅ |
-|---------|-------------|---------------|
-| Data location | Our servers | **Your servers** |
-| OAuth consent | Users see red "unverified" warning | **Admin grants domain-wide — no warning** |
-| User limit | Per-plan | **Unlimited** |
-| Cleanup credits | Per-plan | **Unlimited** |
-| Domain restriction | Any Gmail | **Your org domain only** |
-| GDPR/SOC2 compliance | Shared responsibility | **Full control** |
+| Feature | Self-Hosted ✅ |
+|---------|---------------|
+| Data location | **Your servers — nothing leaves your network** |
+| OAuth & Identity | **Your GCP project — seamless SSO via domain-wide consent** |
+| Users | **Unlimited** |
+| Cleanup credits | **Unlimited** |
+| Domain restriction | **Your org domain only** |
+| Compliance | **Full control — GDPR, SOC2, ISO 27001 ready** |
 
-### No CASA Assessment Needed
+### Complete Data Sovereignty
 
-When you self-host, your IT admin creates the OAuth app in **your own GCP project** and grants domain-wide consent. Since users never interact with a third-party OAuth screen, there's **no red warning** and **no CASA Tier 3 assessment required**.
+Your IT admin sets up OAuth in **your own GCP project** and grants domain-wide consent — employees sign in seamlessly with their existing Google Workspace credentials. All email metadata stays within your infrastructure. No data ever touches external servers.
 
 ---
 
